@@ -47,6 +47,11 @@ export default function MiniPlayer() {
             className="size-10 flex items-center justify-center rounded-full bg-primary text-background-dark"
             onClick={(e) => {
               e.preventDefault();
+              if (!currentTrack.previewUrl) {
+                updatePlayerState((state) => ({ ...state, isPlaying: false }));
+                return;
+              }
+
               updatePlayerState((state) => ({ ...state, isPlaying: !state.isPlaying }));
             }}
           >

@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getPlayerState, msToClock, subscribePlayerState, updatePlayerState } from '../lib/playerState';
 
 export default function NowPlaying() {
   const navigate = useNavigate();
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playerState, setPlayerState] = useState(getPlayerState());
-  const [elapsedMs, setElapsedMs] = useState(() => getPlayerState().currentTimeMs || 0);
 
   const currentTrack = useMemo(() => {
     if (!playerState.queue.length) {
@@ -21,102 +19,6 @@ export default function NowPlaying() {
       setPlayerState(getPlayerState());
     });
   }, []);
-
-  useEffect(() => {
-    if (!audioRef.current || !currentTrack?.previewUrl) {
-      return;
-    }
-
-    const resumeMs = getPlayerState().currentTimeMs || 0;
-    audioRef.current.src = currentTrack.previewUrl;
-    audioRef.current.currentTime = Math.max(0, resumeMs / 1000);
-    setElapsedMs(resumeMs);
-
-    if (playerState.isPlaying) {
-      void audioRef.current.play().catch(() => {
-        updatePlayerState((state) => ({ ...state, isPlaying: false }));
-      });
-    }
-  }, [currentTrack?.id]);
-
-  useEffect(() => {
-    if (!audioRef.current || !currentTrack?.previewUrl) {
-      return;
-    }
-
-    if (playerState.isPlaying) {
-      void audioRef.current.play().catch(() => {
-        updatePlayerState((state) => ({ ...state, isPlaying: false }));
-      });
-      return;
-    }
-
-    audioRef.current.pause();
-  }, [playerState.isPlaying, currentTrack?.previewUrl]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (!audioRef.current) {
-        return;
-      }
-
-      setElapsedMs(Math.floor(audioRef.current.currentTime * 1000));
-    }, 250);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!currentTrack || !playerState.isPlaying) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      updatePlayerState((state) => {
-        if (state.currentIndex !== playerState.currentIndex || state.queue[state.currentIndex]?.id !== currentTrack.id) {
-          return state;
-        }
-
-        if (Math.abs(state.currentTimeMs - elapsedMs) < 900) {
-          return state;
-        }
-
-        return {
-          ...state,
-          currentTimeMs: elapsedMs,
-        };
-      });
-    }, 1000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [currentTrack?.id, elapsedMs, playerState.currentIndex, playerState.isPlaying]);
-
-  useEffect(() => {
-    return () => {
-      if (!audioRef.current) {
-        return;
-      }
-
-      const latestMs = Math.floor(audioRef.current.currentTime * 1000);
-      updatePlayerState((state) => ({
-        ...state,
-        currentTimeMs: latestMs,
-      }));
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!currentTrack) {
-      setElapsedMs(0);
-      return;
-    }
-
-    setElapsedMs(getPlayerState().currentTimeMs || 0);
-  }, [currentTrack?.id]);
 
   function goNext() {
     updatePlayerState((state) => {
@@ -158,10 +60,10 @@ export default function NowPlaying() {
     updatePlayerState((state) => ({
       ...state,
       isPlaying: !state.isPlaying,
-      currentTimeMs: elapsedMs,
     }));
   }
 
+  const elapsedMs = playerState.currentTimeMs || 0;
   const progress = currentTrack?.durationMs ? Math.min(100, (elapsedMs / currentTrack.durationMs) * 100) : 0;
 
   if (!currentTrack) {
@@ -185,8 +87,6 @@ export default function NowPlaying() {
         ></div>
         <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-background-light/85 to-background-light dark:from-black/35 dark:via-background-dark/80 dark:to-background-dark"></div>
       </div>
-
-      <audio ref={audioRef} onEnded={goNext} />
 
       <div className="relative z-10 flex items-center justify-between">
         <Link to="/playlist" className="text-slate-900 dark:text-slate-100 p-2 hover:bg-primary/10 rounded-full transition-colors">
