@@ -201,6 +201,7 @@ export default function Playlist() {
       queue: tracks.map((entry) => toPlayerTrack(entry.track)),
       currentIndex: startIndex,
       isPlaying: true,
+      currentTimeMs: 0,
     });
     navigate('/now-playing');
   }

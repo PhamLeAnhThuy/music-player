@@ -117,6 +117,7 @@ export default function Queue() {
         ...state,
         currentIndex: nextIndex,
         isPlaying: Boolean(state.queue[nextIndex].previewUrl),
+        currentTimeMs: 0,
       };
     });
   }

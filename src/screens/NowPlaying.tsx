@@ -5,8 +5,8 @@ import { getPlayerState, msToClock, subscribePlayerState, updatePlayerState } fr
 export default function NowPlaying() {
   const navigate = useNavigate();
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [elapsedMs, setElapsedMs] = useState(0);
   const [playerState, setPlayerState] = useState(getPlayerState());
+  const [elapsedMs, setElapsedMs] = useState(() => getPlayerState().currentTimeMs || 0);
 
   const currentTrack = useMemo(() => {
     if (!playerState.queue.length) {
@@ -27,7 +27,11 @@ export default function NowPlaying() {
       return;
     }
 
+    const resumeMs = getPlayerState().currentTimeMs || 0;
     audioRef.current.src = currentTrack.previewUrl;
+    audioRef.current.currentTime = Math.max(0, resumeMs / 1000);
+    setElapsedMs(resumeMs);
+
     if (playerState.isPlaying) {
       void audioRef.current.play().catch(() => {
         updatePlayerState((state) => ({ ...state, isPlaying: false }));
@@ -52,7 +56,7 @@ export default function NowPlaying() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (!audioRef.current || !playerState.isPlaying) {
+      if (!audioRef.current) {
         return;
       }
 
@@ -62,10 +66,56 @@ export default function NowPlaying() {
     return () => {
       window.clearInterval(timer);
     };
-  }, [playerState.isPlaying]);
+  }, []);
 
   useEffect(() => {
-    setElapsedMs(0);
+    if (!currentTrack || !playerState.isPlaying) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      updatePlayerState((state) => {
+        if (state.currentIndex !== playerState.currentIndex || state.queue[state.currentIndex]?.id !== currentTrack.id) {
+          return state;
+        }
+
+        if (Math.abs(state.currentTimeMs - elapsedMs) < 900) {
+          return state;
+        }
+
+        return {
+          ...state,
+          currentTimeMs: elapsedMs,
+        };
+      });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [currentTrack?.id, elapsedMs, playerState.currentIndex, playerState.isPlaying]);
+
+  useEffect(() => {
+    return () => {
+      if (!audioRef.current) {
+        return;
+      }
+
+      const latestMs = Math.floor(audioRef.current.currentTime * 1000);
+      updatePlayerState((state) => ({
+        ...state,
+        currentTimeMs: latestMs,
+      }));
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!currentTrack) {
+      setElapsedMs(0);
+      return;
+    }
+
+    setElapsedMs(getPlayerState().currentTimeMs || 0);
   }, [currentTrack?.id]);
 
   function goNext() {
@@ -79,6 +129,7 @@ export default function NowPlaying() {
         ...state,
         currentIndex: nextIndex,
         isPlaying: state.queue[nextIndex]?.previewUrl ? true : false,
+        currentTimeMs: 0,
       };
     });
   }
@@ -94,6 +145,7 @@ export default function NowPlaying() {
         ...state,
         currentIndex: prevIndex,
         isPlaying: state.queue[prevIndex]?.previewUrl ? true : false,
+        currentTimeMs: 0,
       };
     });
   }
@@ -106,6 +158,7 @@ export default function NowPlaying() {
     updatePlayerState((state) => ({
       ...state,
       isPlaying: !state.isPlaying,
+      currentTimeMs: elapsedMs,
     }));
   }
 

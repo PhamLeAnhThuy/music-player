@@ -14,6 +14,7 @@ export type PlayerState = {
   currentIndex: number;
   queue: PlayerTrack[];
   isPlaying: boolean;
+  currentTimeMs: number;
 };
 
 const PLAYER_STATE_STORAGE_KEY = 'music-player-playback-state';
@@ -25,6 +26,7 @@ export const DEFAULT_PLAYER_STATE: PlayerState = {
   currentIndex: 0,
   queue: [],
   isPlaying: false,
+  currentTimeMs: 0,
 };
 
 function isValidPlayerState(value: unknown): value is PlayerState {
@@ -49,10 +51,12 @@ export function getPlayerState(): PlayerState {
     }
 
     const boundedIndex = Math.max(0, Math.min(parsedState.currentIndex, parsedState.queue.length - 1));
+    const currentTimeMs = typeof parsedState.currentTimeMs === 'number' ? parsedState.currentTimeMs : 0;
     return {
       ...DEFAULT_PLAYER_STATE,
       ...parsedState,
       currentIndex: Number.isFinite(boundedIndex) ? boundedIndex : 0,
+      currentTimeMs: Number.isFinite(currentTimeMs) ? Math.max(0, currentTimeMs) : 0,
     };
   } catch {
     return DEFAULT_PLAYER_STATE;
