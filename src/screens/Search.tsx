@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ApiPlaylist, ApiTrack, addSongToPlaylist, listPlaylistSongs, listUserPlaylists, searchSongs } from '../lib/api';
+import { getPlayerState, PlayerTrack, setPlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
 
 function formatDuration(durationMs: number) {
@@ -10,6 +12,7 @@ function formatDuration(durationMs: number) {
 }
 
 export default function Search() {
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [songs, setSongs] = useState<ApiTrack[]>([]);
   const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
@@ -19,6 +22,18 @@ export default function Search() {
   const [addingTrackId, setAddingTrackId] = useState<string | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
   const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
+
+  function toPlayerTrack(track: ApiTrack): PlayerTrack {
+    return {
+      id: track.id,
+      name: track.name,
+      artist: track.artists.map((artist) => artist.name).join(', ') || 'Unknown artist',
+      album: track.album.name,
+      imageUrl: track.album.images?.[0]?.url || '',
+      previewUrl: track.preview_url,
+      durationMs: track.duration_ms,
+    };
+  }
 
   useEffect(() => {
     async function loadPlaylists() {
@@ -139,6 +154,26 @@ export default function Search() {
     }
   }
 
+  function onPlayFromSearch(song: ApiTrack) {
+    const selectedTrack = toPlayerTrack(song);
+    const previousState = getPlayerState();
+    const existingQueue = previousState.queue || [];
+    const dedupedQueue = existingQueue.filter((track) => track.id !== selectedTrack.id);
+
+    setPlayerState({
+      ...previousState,
+      playlistId: null,
+      playlistName: 'Search Queue',
+      queue: [selectedTrack, ...dedupedQueue],
+      currentIndex: 0,
+      isPlaying: Boolean(selectedTrack.previewUrl),
+      currentTimeMs: 0,
+    });
+
+    showToast({ message: `Playing "${song.name}" from search.`, kind: 'success', durationMs: 1600 });
+    navigate('/now-playing');
+  }
+
   const topResult = useMemo(() => songs[0] || null, [songs]);
 
   return (
@@ -209,6 +244,13 @@ export default function Search() {
               <button type="button" className="bg-primary text-background-dark p-2 rounded-full shadow-lg" onClick={() => playPreview(topResult)}>
                 <span className="material-symbols-outlined fill-1">{playingTrackId === topResult.id ? 'pause' : 'play_arrow'}</span>
               </button>
+              <button
+                type="button"
+                className="bg-slate-900 text-slate-100 p-2 rounded-full shadow-lg"
+                onClick={() => onPlayFromSearch(topResult)}
+              >
+                <span className="material-symbols-outlined fill-1">play_circle</span>
+              </button>
             </div>
           </section>
         )}
@@ -238,6 +280,9 @@ export default function Search() {
                 </div>
                 <button type="button" className="text-slate-500 text-xl" onClick={() => playPreview(song)}>
                   <span className="material-symbols-outlined">{playingTrackId === song.id ? 'pause' : 'play_arrow'}</span>
+                </button>
+                <button type="button" className="text-slate-900 dark:text-slate-100 text-xl" onClick={() => onPlayFromSearch(song)}>
+                  <span className="material-symbols-outlined">play_circle</span>
                 </button>
                 <button
                   type="button"
