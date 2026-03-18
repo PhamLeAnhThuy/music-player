@@ -1,6 +1,44 @@
-import { Link } from 'react-router-dom';
+import { FormEvent, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { setStoredUserId, signUpUser } from '../lib/api';
 
 export default function CreateAccount() {
+  const navigate = useNavigate();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+
+    if (!name.trim() || !email.trim() || !password) {
+      setError('Name, email, and password are required.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Password confirmation does not match.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const response = await signUpUser(name.trim(), email.trim(), password);
+      if (response.user?.id) {
+        setStoredUserId(response.user.id);
+      }
+      navigate('/home');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create account.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col bg-background-light dark:bg-background-dark group/design-root overflow-x-hidden">
       <div className="flex items-center p-4 pb-2 justify-between">
@@ -15,25 +53,46 @@ export default function CreateAccount() {
         <p className="text-slate-600 dark:text-slate-400 text-base font-normal leading-normal pt-2">Sign up to start your musical journey</p>
       </div>
       
-      <form className="flex flex-col gap-4 px-6 py-2 max-w-[480px] w-full mx-auto">
+      <form className="flex flex-col gap-4 px-6 py-2 max-w-[480px] w-full mx-auto" onSubmit={onSubmit}>
         <div className="flex flex-col gap-2">
           <label className="text-slate-700 dark:text-slate-300 text-sm font-medium leading-none">Full Name</label>
           <div className="relative">
-            <input className="form-input flex w-full rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary border border-slate-200 dark:border-background-dark/20 bg-white dark:bg-[#1c2620] h-14 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-[15px] text-base font-normal transition-all" placeholder="John Doe" type="text" />
+            <input
+              className="form-input flex w-full rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary border border-slate-200 dark:border-background-dark/20 bg-white dark:bg-[#1c2620] h-14 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-[15px] text-base font-normal transition-all"
+              placeholder="John Doe"
+              type="text"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              autoComplete="name"
+            />
           </div>
         </div>
         
         <div className="flex flex-col gap-2">
           <label className="text-slate-700 dark:text-slate-300 text-sm font-medium leading-none">Email Address</label>
           <div className="relative">
-            <input className="form-input flex w-full rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary border border-slate-200 dark:border-background-dark/20 bg-white dark:bg-[#1c2620] h-14 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-[15px] text-base font-normal transition-all" placeholder="name@example.com" type="email" />
+            <input
+              className="form-input flex w-full rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary border border-slate-200 dark:border-background-dark/20 bg-white dark:bg-[#1c2620] h-14 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-[15px] text-base font-normal transition-all"
+              placeholder="name@example.com"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+            />
           </div>
         </div>
         
         <div className="flex flex-col gap-2">
           <label className="text-slate-700 dark:text-slate-300 text-sm font-medium leading-none">Password</label>
           <div className="relative group">
-            <input className="form-input flex w-full rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary border border-slate-200 dark:border-background-dark/20 bg-white dark:bg-[#1c2620] h-14 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-[15px] text-base font-normal transition-all" placeholder="••••••••" type="password" />
+            <input
+              className="form-input flex w-full rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary border border-slate-200 dark:border-background-dark/20 bg-white dark:bg-[#1c2620] h-14 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-[15px] text-base font-normal transition-all"
+              placeholder="••••••••"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="new-password"
+            />
             <button className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500" type="button">
               <span className="material-symbols-outlined">visibility</span>
             </button>
@@ -43,14 +102,25 @@ export default function CreateAccount() {
         <div className="flex flex-col gap-2">
           <label className="text-slate-700 dark:text-slate-300 text-sm font-medium leading-none">Confirm Password</label>
           <div className="relative">
-            <input className="form-input flex w-full rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary border border-slate-200 dark:border-background-dark/20 bg-white dark:bg-[#1c2620] h-14 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-[15px] text-base font-normal transition-all" placeholder="••••••••" type="password" />
+            <input
+              className="form-input flex w-full rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary border border-slate-200 dark:border-background-dark/20 bg-white dark:bg-[#1c2620] h-14 placeholder:text-slate-400 dark:placeholder:text-slate-500 p-[15px] text-base font-normal transition-all"
+              placeholder="••••••••"
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              autoComplete="new-password"
+            />
           </div>
         </div>
         
         <div className="flex flex-col gap-4 mt-6">
-          <Link to="/home" className="w-full bg-primary hover:bg-primary/90 text-background-dark font-bold py-4 rounded-full text-lg transition-colors shadow-lg shadow-primary/20 flex items-center justify-center">
-            Register
-          </Link>
+          <button className="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 text-background-dark font-bold py-4 rounded-full text-lg transition-colors shadow-lg shadow-primary/20 flex items-center justify-center" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Creating account...' : 'Register'}
+          </button>
+
+          {error && (
+            <p className="text-sm text-red-500 text-center">{error}</p>
+          )}
           
           <div className="flex items-center gap-4 py-2">
             <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>

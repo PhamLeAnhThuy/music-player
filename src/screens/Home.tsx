@@ -1,6 +1,35 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ApiTrack, getRecommendations, getStoredUserId } from '../lib/api';
 
 export default function Home() {
+  const [recommendations, setRecommendations] = useState<ApiTrack[]>([]);
+  const [recommendationError, setRecommendationError] = useState('');
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
+
+  useEffect(() => {
+    const userId = getStoredUserId();
+    if (!userId) {
+      setRecommendationError('Sign in to load personalized recommendations.');
+      return;
+    }
+
+    async function loadRecommendations() {
+      try {
+        setLoadingRecommendations(true);
+        setRecommendationError('');
+        const response = await getRecommendations(userId);
+        setRecommendations(response.tracks || []);
+      } catch (err) {
+        setRecommendationError(err instanceof Error ? err.message : 'Could not load recommendations.');
+      } finally {
+        setLoadingRecommendations(false);
+      }
+    }
+
+    void loadRecommendations();
+  }, []);
+
   return (
     <div className="flex flex-col h-full">
       <header className="flex items-center justify-between px-4 py-4 shrink-0">
@@ -30,27 +59,25 @@ export default function Home() {
             <a href="#" className="text-primary text-sm font-semibold">See all</a>
           </div>
           <div className="flex gap-4 overflow-x-auto px-4 hide-scrollbar">
-            <Link to="/playlist" className="flex-none w-40 block">
-              <div className="aspect-square rounded-xl bg-slate-200 dark:bg-slate-800 mb-2 overflow-hidden shadow-lg group">
-                <img alt="Album Cover" className="w-full h-full object-cover group-hover:scale-105 transition-transform" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAI4IBWVxXQ9EM1LUUNeFCWitC9ahgpU0lLuZhHWWkvujAiEORZ6-aqq-1737zzXo_QLOtJCONSRI_y5oRvCynUjf8XgVaixmjF4Z4q_9BJFJHMj2EDI-ONCrvYn5_bTXHwsUeQR-xcgO7How0rLhN5mmNl9WhZr4dyH3lyPEPzfzNw1p_tL0JMBiqJgh8f9z-CvSIRDBmX-sXyTPJkyUOtR8HcF64Nl58vAL1DswNGEIN5P5Yn2ZA7WQPFizmexCZgdnHzns0Adr8" />
-              </div>
-              <p className="font-bold text-sm truncate">Midnight City</p>
-              <p className="text-xs text-slate-500 dark:text-primary/60 truncate">M83</p>
-            </Link>
-            <div className="flex-none w-40">
-              <div className="aspect-square rounded-xl bg-slate-200 dark:bg-slate-800 mb-2 overflow-hidden shadow-lg group">
-                <img alt="Album Cover" className="w-full h-full object-cover group-hover:scale-105 transition-transform" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCK2zBfJ6IPoYlgCGqM8IjZZu6SjRSk_Qj_mBga5B74wpQPvQbac8JtQqQV12iliCZ4u_VJ-PG4LRFZ9uIUL74enPJi9HUN9W98ZHV0mXVKIxlpPpLePHURXDE9YD6kRBm2EEDw1WJoLgjzl-8Dz1WRhBlJLsb9eqNE47npsCjSicq6jEu48ts0TRDSd1aslhlQ66xn1X4vZP_fzwYxZd_6LUrmpjxa6ogqj68kL-XJ5RzTAdzaT1gOHTW7qAlp4cNh5-O8VehhiUk" />
-              </div>
-              <p className="font-bold text-sm truncate">Starboy</p>
-              <p className="text-xs text-slate-500 dark:text-primary/60 truncate">The Weeknd</p>
-            </div>
-            <div className="flex-none w-40">
-              <div className="aspect-square rounded-xl bg-slate-200 dark:bg-slate-800 mb-2 overflow-hidden shadow-lg group">
-                <img alt="Album Cover" className="w-full h-full object-cover group-hover:scale-105 transition-transform" src="https://lh3.googleusercontent.com/aida-public/AB6AXuATFYUoVsLVrCo___Rq5JTzLvkf0j400oiH3hf-Z_ECEj3o05W6JbrEN6oPY7wAx9D-YhhNu4v4JMSNyQwF79RfHagC_Zifhu7Nt16OoV-pV4AhF96GhYGTrgaMrrP-sTz6RwNuDklquQ9XXB1FMiEBpYEP7oJ6TT231JgO246h9sSKesXNlL_CVFO-ZiPWb0iweLVbQ3whcHR90XwLxUllDGTtaShesN5XO9Bmf4z_MUNeHS-cI23KlQFwGdwqwQyyQfrM0m4bDGw" />
-              </div>
-              <p className="font-bold text-sm truncate">Blinding Lights</p>
-              <p className="text-xs text-slate-500 dark:text-primary/60 truncate">The Weeknd</p>
-            </div>
+            {loadingRecommendations && <p className="text-sm text-slate-500">Loading recommendations...</p>}
+            {recommendationError && <p className="text-sm text-red-500">{recommendationError}</p>}
+            {!loadingRecommendations && !recommendationError && recommendations.length === 0 && (
+              <p className="text-sm text-slate-500">No recommendations available yet.</p>
+            )}
+
+            {recommendations.slice(0, 8).map((song) => (
+              <Link to="/playlist" className="flex-none w-40 block" key={song.id}>
+                <div className="aspect-square rounded-xl bg-slate-200 dark:bg-slate-800 mb-2 overflow-hidden shadow-lg group">
+                  <img
+                    alt={song.album.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    src={song.album.images[0]?.url || 'https://via.placeholder.com/320'}
+                  />
+                </div>
+                <p className="font-bold text-sm truncate">{song.name}</p>
+                <p className="text-xs text-slate-500 dark:text-primary/60 truncate">{song.artists.map((artist) => artist.name).join(', ')}</p>
+              </Link>
+            ))}
           </div>
         </section>
 

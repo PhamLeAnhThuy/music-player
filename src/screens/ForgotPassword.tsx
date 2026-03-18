@@ -1,6 +1,34 @@
+import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { requestPasswordReset } from '../lib/api';
 
 export default function ForgotPassword() {
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage('');
+    setError('');
+
+    if (!email.trim()) {
+      setError('Email is required.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await requestPasswordReset(email.trim());
+      setMessage('Reset email sent. Please check your inbox.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send reset email.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-background-light dark:bg-background-dark">
       <div className="flex items-center p-4 pb-2 justify-between">
@@ -21,23 +49,32 @@ export default function ForgotPassword() {
           </p>
         </div>
 
-        <div className="flex flex-col gap-6">
+        <form className="flex flex-col gap-6" onSubmit={onSubmit}>
           <div className="flex flex-col gap-2">
             <label className="text-slate-900 dark:text-slate-100 text-sm font-medium leading-none">Email Address</label>
             <div className="relative">
-              <input className="form-input flex w-full rounded-lg border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark/50 text-slate-900 dark:text-slate-100 focus:border-primary focus:ring-1 focus:ring-primary h-14 placeholder:text-slate-400 dark:placeholder:text-slate-600 px-4 text-base font-normal transition-colors" placeholder="example@email.com" type="email" />
+              <input
+                className="form-input flex w-full rounded-lg border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark/50 text-slate-900 dark:text-slate-100 focus:border-primary focus:ring-1 focus:ring-primary h-14 placeholder:text-slate-400 dark:placeholder:text-slate-600 px-4 text-base font-normal transition-colors"
+                placeholder="example@email.com"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+              />
             </div>
           </div>
           
           <div className="flex flex-col gap-4 pt-2">
-            <button className="flex w-full cursor-pointer items-center justify-center rounded-lg h-14 px-5 bg-primary hover:bg-primary/90 text-background-dark text-base font-bold leading-normal tracking-wide transition-all shadow-lg shadow-primary/20">
-              <span>Send reset link</span>
+            <button className="flex w-full cursor-pointer items-center justify-center rounded-lg h-14 px-5 bg-primary hover:bg-primary/90 disabled:opacity-60 text-background-dark text-base font-bold leading-normal tracking-wide transition-all shadow-lg shadow-primary/20" type="submit" disabled={isSubmitting}>
+              <span>{isSubmitting ? 'Sending...' : 'Send reset link'}</span>
             </button>
             <Link to="/" className="flex w-full cursor-pointer items-center justify-center rounded-lg h-14 px-5 bg-transparent border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 text-base font-semibold leading-normal hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
               <span>Back to login</span>
             </Link>
           </div>
-        </div>
+          {message && <p className="text-sm text-green-600 dark:text-green-400">{message}</p>}
+          {error && <p className="text-sm text-red-500">{error}</p>}
+        </form>
       </div>
 
       <div className="mt-auto flex justify-center p-8 opacity-20 pointer-events-none">

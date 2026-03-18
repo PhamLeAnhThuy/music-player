@@ -1,6 +1,40 @@
-import { Link } from 'react-router-dom';
+import { FormEvent, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { extractUserIdFromLoginResponse, loginUser, setStoredUserId } from '../lib/api';
 
 export default function SignIn() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+
+    if (!email.trim() || !password.trim()) {
+      setError('Email and password are required.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const response = await loginUser(email.trim(), password);
+      const userId = extractUserIdFromLoginResponse(response);
+
+      if (userId) {
+        setStoredUserId(userId);
+      }
+
+      navigate('/home');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sign in.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-[480px] flex flex-col gap-8">
@@ -21,31 +55,52 @@ export default function SignIn() {
           <p className="text-slate-600 dark:text-slate-400 text-base font-normal leading-normal">The music is waiting for you</p>
         </div>
 
-        <div className="flex flex-col gap-6 w-full">
+        <form className="flex flex-col gap-6 w-full" onSubmit={onSubmit}>
           <div className="flex flex-col gap-2">
             <label className="text-slate-900 dark:text-slate-100 text-sm font-semibold tracking-wide uppercase">Email</label>
             <div className="relative">
               <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">mail</span>
-              <input className="form-input flex w-full rounded-xl text-slate-900 dark:text-slate-100 focus:outline-0 focus:ring-2 focus:ring-primary border border-slate-200 dark:border-primary/20 bg-white dark:bg-primary/5 h-14 placeholder:text-slate-400 pl-12 pr-4 text-base font-normal" placeholder="your@email.com" type="email" />
+              <input
+                className="form-input flex w-full rounded-xl text-slate-900 dark:text-slate-100 focus:outline-0 focus:ring-2 focus:ring-primary border border-slate-200 dark:border-primary/20 bg-white dark:bg-primary/5 h-14 placeholder:text-slate-400 pl-12 pr-4 text-base font-normal"
+                placeholder="your@email.com"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+              />
             </div>
           </div>
           <div className="flex flex-col gap-2">
             <label className="text-slate-900 dark:text-slate-100 text-sm font-semibold tracking-wide uppercase">Password</label>
             <div className="relative">
               <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">lock</span>
-              <input className="form-input flex w-full rounded-xl text-slate-900 dark:text-slate-100 focus:outline-0 focus:ring-2 focus:ring-primary border border-slate-200 dark:border-primary/20 bg-white dark:bg-primary/5 h-14 placeholder:text-slate-400 pl-12 pr-12 text-base font-normal" placeholder="••••••••" type="password" />
+              <input
+                className="form-input flex w-full rounded-xl text-slate-900 dark:text-slate-100 focus:outline-0 focus:ring-2 focus:ring-primary border border-slate-200 dark:border-primary/20 bg-white dark:bg-primary/5 h-14 placeholder:text-slate-400 pl-12 pr-12 text-base font-normal"
+                placeholder="••••••••"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+              />
               <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 cursor-pointer">visibility</span>
             </div>
             <div className="flex justify-end">
               <Link to="/forgot-password" className="text-primary text-sm font-medium hover:underline">Forgot password?</Link>
             </div>
           </div>
-        </div>
+          <button
+            className="bg-primary hover:bg-primary/90 disabled:opacity-60 text-background-dark font-bold text-lg h-14 rounded-full transition-all shadow-lg shadow-primary/20 active:scale-95 flex items-center justify-center"
+            type="submit"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Signing in...' : 'Login to My Music'}
+          </button>
+          {error && (
+            <p className="text-sm text-red-500 text-center">{error}</p>
+          )}
+        </form>
 
         <div className="flex flex-col gap-4 w-full">
-          <Link to="/home" className="bg-primary hover:bg-primary/90 text-background-dark font-bold text-lg h-14 rounded-full transition-all shadow-lg shadow-primary/20 active:scale-95 flex items-center justify-center">
-            Login to My Music
-          </Link>
           <div className="relative flex items-center py-4">
             <div className="flex-grow border-t border-slate-200 dark:border-primary/10"></div>
             <span className="flex-shrink mx-4 text-slate-400 text-xs font-bold uppercase tracking-widest">Or continue with</span>
