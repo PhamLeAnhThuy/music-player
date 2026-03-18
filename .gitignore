@@ -1,0 +1,22 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Android and Gradle artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+
+# IDE settings
+.idea/
+.vscode/
+
+# OS artifacts
+Thumbs.db
+Desktop.ini
