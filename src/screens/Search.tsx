@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { ApiPlaylist, ApiTrack, addSongToPlaylist, listPlaylistSongs, listUserPlaylists, searchSongs } from '../lib/api';
 import { getPlayerState, PlayerTrack, setPlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
@@ -12,7 +11,6 @@ function formatDuration(durationMs: number) {
 }
 
 export default function Search() {
-  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [songs, setSongs] = useState<ApiTrack[]>([]);
   const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
@@ -170,8 +168,13 @@ export default function Search() {
       currentTimeMs: 0,
     });
 
-    showToast({ message: `Playing "${song.name}" from search.`, kind: 'success', durationMs: 1600 });
-    navigate('/now-playing');
+    if (song.preview_url) {
+      playPreview(song);
+      showToast({ message: `Playing "${song.name}" from search.`, kind: 'success', durationMs: 1600 });
+      return;
+    }
+
+    showToast({ message: `"${song.name}" has no preview. Open in Spotify to listen.`, kind: 'info' });
   }
 
   const topResult = useMemo(() => songs[0] || null, [songs]);
@@ -220,7 +223,11 @@ export default function Search() {
         {topResult && (
           <section>
             <h2 className="text-lg font-bold mb-3">Top Result</h2>
-            <div className="bg-slate-200 dark:bg-primary/5 rounded-xl p-4 flex items-center gap-4">
+            <button
+              type="button"
+              className="w-full text-left bg-slate-200 dark:bg-primary/5 rounded-xl p-4 flex items-center gap-4 cursor-pointer"
+              onClick={() => onPlayFromSearch(topResult)}
+            >
               <img
                 alt="Album"
                 className="w-20 h-20 rounded-xl object-cover"
@@ -230,7 +237,13 @@ export default function Search() {
                 <h3 className="font-bold text-xl truncate">{topResult.name}</h3>
                 <p className="text-sm text-slate-500 dark:text-primary/60 truncate">{topResult.artists.map((artist) => artist.name).join(', ')}</p>
               </div>
-              <a href={topResult.external_urls.spotify} target="_blank" rel="noreferrer" className="bg-primary text-background-dark p-2 rounded-full shadow-lg">
+              <a
+                href={topResult.external_urls.spotify}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-primary text-background-dark p-2 rounded-full shadow-lg"
+                onClick={(event) => event.stopPropagation()}
+              >
                 <span className="material-symbols-outlined fill-1">open_in_new</span>
               </a>
               <button
@@ -241,17 +254,17 @@ export default function Search() {
               >
                 <span className="material-symbols-outlined fill-1">playlist_add</span>
               </button>
-              <button type="button" className="bg-primary text-background-dark p-2 rounded-full shadow-lg" onClick={() => playPreview(topResult)}>
-                <span className="material-symbols-outlined fill-1">{playingTrackId === topResult.id ? 'pause' : 'play_arrow'}</span>
-              </button>
               <button
                 type="button"
-                className="bg-slate-900 text-slate-100 p-2 rounded-full shadow-lg"
-                onClick={() => onPlayFromSearch(topResult)}
+                className="bg-primary text-background-dark p-2 rounded-full shadow-lg"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  playPreview(topResult);
+                }}
               >
-                <span className="material-symbols-outlined fill-1">play_circle</span>
+                <span className="material-symbols-outlined fill-1">{playingTrackId === topResult.id ? 'pause' : 'play_arrow'}</span>
               </button>
-            </div>
+            </button>
           </section>
         )}
 
@@ -268,7 +281,12 @@ export default function Search() {
 
           <div className="space-y-1 mt-2">
             {songs.map((song) => (
-              <div key={song.id} className="flex items-center gap-3 p-2 hover:bg-primary/10 rounded-lg transition-colors group">
+              <button
+                key={song.id}
+                type="button"
+                className="w-full text-left flex items-center gap-3 p-2 hover:bg-primary/10 rounded-lg transition-colors group cursor-pointer"
+                onClick={() => onPlayFromSearch(song)}
+              >
                 <div className="relative w-12 h-12 shrink-0">
                   <img alt={song.album.name} className="w-full h-full rounded object-cover" src={song.album.images[0]?.url || 'https://via.placeholder.com/96'} />
                 </div>
@@ -278,26 +296,39 @@ export default function Search() {
                     {song.artists.map((artist) => artist.name).join(', ')} • {formatDuration(song.duration_ms)}
                   </p>
                 </div>
-                <button type="button" className="text-slate-500 text-xl" onClick={() => playPreview(song)}>
+                <button
+                  type="button"
+                  className="text-slate-500 text-xl"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    playPreview(song);
+                  }}
+                >
                   <span className="material-symbols-outlined">{playingTrackId === song.id ? 'pause' : 'play_arrow'}</span>
-                </button>
-                <button type="button" className="text-slate-900 dark:text-slate-100 text-xl" onClick={() => onPlayFromSearch(song)}>
-                  <span className="material-symbols-outlined">play_circle</span>
                 </button>
                 <button
                   type="button"
                   className="text-primary text-xl disabled:text-slate-400"
-                  onClick={() => onAddSongToPlaylist(song)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onAddSongToPlaylist(song);
+                  }}
                   disabled={!selectedPlaylistId || addingTrackId === song.id}
                 >
                   <span className="material-symbols-outlined">playlist_add</span>
                 </button>
                 {song.external_urls.spotify && (
-                  <a href={song.external_urls.spotify} target="_blank" rel="noreferrer" className="text-slate-500 text-xl">
+                  <a
+                    href={song.external_urls.spotify}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-slate-500 text-xl"
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <span className="material-symbols-outlined">open_in_new</span>
                   </a>
                 )}
-              </div>
+              </button>
             ))}
           </div>
         </section>

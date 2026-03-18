@@ -178,9 +178,17 @@ export default function NowPlaying() {
 
   return (
     <div className="relative flex h-full min-h-screen w-full flex-col bg-background-light dark:bg-background-dark overflow-x-hidden shadow-2xl px-6 py-6 pb-8">
+      <div className="absolute inset-0 pointer-events-none">
+        <div
+          className="absolute inset-0 bg-cover bg-center scale-110 blur-3xl opacity-45"
+          style={{ backgroundImage: `url('${currentTrack.imageUrl || 'https://placehold.co/600x600?text=Track'}')` }}
+        ></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-background-light/85 to-background-light dark:from-black/35 dark:via-background-dark/80 dark:to-background-dark"></div>
+      </div>
+
       <audio ref={audioRef} onEnded={goNext} />
 
-      <div className="flex items-center justify-between">
+      <div className="relative z-10 flex items-center justify-between">
         <Link to="/playlist" className="text-slate-900 dark:text-slate-100 p-2 hover:bg-primary/10 rounded-full transition-colors">
           <span className="material-symbols-outlined">expand_more</span>
         </Link>
@@ -193,7 +201,7 @@ export default function NowPlaying() {
         </Link>
       </div>
 
-      <div className="mt-8 rounded-2xl overflow-hidden bg-primary/10 aspect-square shadow-xl">
+      <div className="relative z-10 mt-8 rounded-2xl overflow-hidden bg-primary/10 aspect-square shadow-xl">
         <img
           src={currentTrack.imageUrl || 'https://placehold.co/600x600?text=Track'}
           alt={currentTrack.name}
@@ -201,12 +209,12 @@ export default function NowPlaying() {
         />
       </div>
 
-      <div className="mt-8">
+      <div className="relative z-10 mt-8">
         <h1 className="text-2xl font-bold leading-tight truncate">{currentTrack.name}</h1>
         <p className="text-slate-500 mt-1 truncate">{currentTrack.artist}</p>
       </div>
 
-      <div className="mt-6">
+      <div className="relative z-10 mt-6">
         <div className="relative h-1.5 w-full rounded-full bg-slate-300 dark:bg-slate-800">
           <div className="absolute h-full rounded-full bg-primary" style={{ width: `${progress}%` }}></div>
         </div>
@@ -216,7 +224,7 @@ export default function NowPlaying() {
         </div>
       </div>
 
-      <div className="mt-8 flex items-center justify-center gap-8">
+      <div className="relative z-10 mt-8 flex items-center justify-center gap-8">
         <button className="text-slate-900 dark:text-slate-100" onClick={goPrevious}>
           <span className="material-symbols-outlined text-4xl fill-icon">skip_previous</span>
         </button>
@@ -233,7 +241,7 @@ export default function NowPlaying() {
       </div>
 
       {!currentTrack.previewUrl && (
-        <p className="mt-6 text-sm text-amber-600 dark:text-amber-400">No preview URL available for this song. Skip to another track to play.</p>
+        <p className="relative z-10 mt-6 text-sm text-amber-600 dark:text-amber-400">No preview URL available for this song. Skip to another track to play.</p>
       )}
     </div>
   );
