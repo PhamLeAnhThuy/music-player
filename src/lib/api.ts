@@ -1,5 +1,8 @@
 const DEFAULT_API_BASE_URL = 'https://music-player-backend-peach-nine.vercel.app';
 const USER_ID_STORAGE_KEY = 'music-player-user-id';
+const REQUEST_TIMEOUT_MS = 9000;
+const GET_RETRY_COUNT = 2;
+const GET_RETRY_DELAY_MS = 350;
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
 
@@ -68,8 +71,9 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
     ...options.headers,
   };
 
+  const method = options.method || 'GET';
   const requestInit: RequestInit = {
-    method: options.method || 'GET',
+    method,
     headers,
   };
 
@@ -78,21 +82,63 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
     requestInit.body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, requestInit);
+  const maxAttempts = method === 'GET' ? GET_RETRY_COUNT + 1 : 1;
 
-  let payload: any = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const abortController = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      abortController.abort();
+    }, REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}${path}`, {
+        ...requestInit,
+        signal: abortController.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      let payload: any = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        const message = payload?.error || payload?.message || `Request failed (${response.status})`;
+        const canRetryStatus = method === 'GET' && response.status >= 500 && attempt < maxAttempts;
+
+        if (canRetryStatus) {
+          await new Promise((resolve) => window.setTimeout(resolve, GET_RETRY_DELAY_MS * attempt));
+          continue;
+        }
+
+        throw new Error(message);
+      }
+
+      return payload as T;
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      const isAbortError = error instanceof DOMException && error.name === 'AbortError';
+      const isNetworkError = error instanceof TypeError;
+      const canRetryNetwork = method === 'GET' && attempt < maxAttempts && (isAbortError || isNetworkError);
+
+      if (canRetryNetwork) {
+        await new Promise((resolve) => window.setTimeout(resolve, GET_RETRY_DELAY_MS * attempt));
+        continue;
+      }
+
+      if (isAbortError) {
+        throw new Error('Request timed out. Please try again.');
+      }
+
+      throw error;
+    }
   }
 
-  if (!response.ok) {
-    const message = payload?.error || payload?.message || `Request failed (${response.status})`;
-    throw new Error(message);
-  }
-
-  return payload as T;
+  throw new Error('Request failed after retries.');
 }
 
 export async function loginUser(email: string, password: string) {
