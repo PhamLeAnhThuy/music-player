@@ -19,6 +19,8 @@ type PlaylistTrackView = {
   track: ApiTrack;
 };
 
+type TrackSortMode = 'custom' | 'title';
+
 function toPlayerTrack(track: ApiTrack): PlayerTrack {
   return {
     id: track.id,
@@ -31,6 +33,23 @@ function toPlayerTrack(track: ApiTrack): PlayerTrack {
   };
 }
 
+function formatDuration(durationMs: number) {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function shuffleTracks(items: PlaylistTrackView[]) {
+  const next = [...items];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapWith = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapWith]] = [next[swapWith], next[index]];
+  }
+
+  return next;
+}
+
 export default function Playlist() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -38,16 +57,45 @@ export default function Playlist() {
   const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
   const [tracks, setTracks] = useState<PlaylistTrackView[]>([]);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [isLoading, setIsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ApiTrack[]>([]);
+  const [trackSearch, setTrackSearch] = useState('');
+  const [trackSortMode, setTrackSortMode] = useState<TrackSortMode>('custom');
+
+  function notifyOfflineAction() {
+    showToast({
+      message: "You're offline. Reconnect to play songs or open playlists.",
+      kind: 'info',
+      durationMs: 2200,
+    });
+  }
 
   const selectedPlaylist = useMemo(
     () => playlists.find((playlist) => playlist.id === selectedPlaylistId) || null,
     [playlists, selectedPlaylistId],
   );
+
+  const visibleTracks = useMemo(() => {
+    const normalizedSearch = trackSearch.trim().toLowerCase();
+    const filtered = tracks.filter((entry) => {
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const artistNames = entry.track.artists.map((artist) => artist.name).join(' ').toLowerCase();
+      return entry.track.name.toLowerCase().includes(normalizedSearch) || artistNames.includes(normalizedSearch);
+    });
+
+    if (trackSortMode === 'title') {
+      return [...filtered].sort((a, b) => a.track.name.localeCompare(b.track.name));
+    }
+
+    return [...filtered].sort((a, b) => a.position - b.position);
+  }, [tracks, trackSearch, trackSortMode]);
 
   async function loadPlaylists() {
     const response = await listUserPlaylists();
@@ -102,6 +150,19 @@ export default function Playlist() {
   }
 
   useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
     async function bootstrap() {
       try {
         await loadPlaylists();
@@ -123,6 +184,11 @@ export default function Playlist() {
   }, [selectedPlaylistId]);
 
   async function onSearchSongs() {
+    if (!isOnline) {
+      notifyOfflineAction();
+      return;
+    }
+
     if (!searchQuery.trim()) {
       setSearchResults([]);
       return;
@@ -137,6 +203,11 @@ export default function Playlist() {
   }
 
   async function onAddSong(track: ApiTrack) {
+    if (!isOnline) {
+      notifyOfflineAction();
+      return;
+    }
+
     if (!selectedPlaylistId) {
       setError('Please choose a playlist first.');
       return;
@@ -166,6 +237,11 @@ export default function Playlist() {
   }
 
   async function onRemoveSong(spotifyTrackId: string) {
+    if (!isOnline) {
+      notifyOfflineAction();
+      return;
+    }
+
     if (!selectedPlaylistId) {
       return;
     }
@@ -195,15 +271,21 @@ export default function Playlist() {
     }
   }
 
-  function startPlayback(startIndex: number) {
-    if (!tracks.length || !selectedPlaylist) {
+  function startPlayback(startIndex: number, queueSource?: PlaylistTrackView[]) {
+    if (!isOnline) {
+      notifyOfflineAction();
+      return;
+    }
+
+    const queueItems = queueSource || visibleTracks;
+    if (!queueItems.length || !selectedPlaylist) {
       return;
     }
 
     setPlayerState({
       playlistId: selectedPlaylist.id,
       playlistName: selectedPlaylist.name,
-      queue: tracks.map((entry) => toPlayerTrack(entry.track)),
+      queue: queueItems.map((entry) => toPlayerTrack(entry.track)),
       currentIndex: startIndex,
       isPlaying: true,
       currentTimeMs: 0,
@@ -211,15 +293,33 @@ export default function Playlist() {
     navigate('/now-playing');
   }
 
+  function onShufflePlay() {
+    const shuffled = shuffleTracks(visibleTracks);
+    startPlayback(0, shuffled);
+  }
+
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 pb-28 bg-background-light dark:bg-background-dark min-h-screen space-y-5">
-      <header className="space-y-2">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Playlist</p>
-        <h1 className="text-3xl font-bold tracking-tight">{selectedPlaylist?.name || 'Your playlist'}</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-400">Manage songs and send your queue directly to Now Playing.</p>
+    <div className="min-h-screen space-y-5 bg-background-light px-4 pb-32 pt-6 dark:bg-background-dark">
+      <header className="overflow-hidden rounded-3xl bg-gradient-to-b from-emerald-700 to-emerald-900 p-5 text-white shadow-2xl shadow-emerald-900/30">
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-100/80">Playlist</p>
+        <div className="mt-3 flex items-end gap-4">
+          <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-white/15 text-3xl font-black">PL</div>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-3xl font-black tracking-tight">{selectedPlaylist?.name || 'Your playlist'}</h1>
+            <p className="mt-1 truncate text-sm text-emerald-100/90">
+              {visibleTracks.length} tracks · {selectedPlaylist?.description || 'Made for your mood'}
+            </p>
+          </div>
+        </div>
       </header>
 
-      <section className="rounded-xl border border-primary/15 p-4 bg-white dark:bg-background-dark/50 space-y-3">
+      {!isOnline && (
+        <div className="rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-400/30 dark:bg-amber-900/30 dark:text-amber-200">
+          <p className="text-xs font-semibold">You are offline. Playback and playlist changes are unavailable.</p>
+        </div>
+      )}
+
+      <section className="space-y-3 rounded-2xl border border-primary/15 bg-white p-4 dark:bg-background-dark/50">
         <label className="text-xs uppercase tracking-widest text-slate-500 font-bold">Choose playlist</label>
         <select
           className="w-full h-11 rounded-lg border border-slate-200 dark:border-primary/20 bg-white dark:bg-background-dark/60 px-3"
@@ -239,29 +339,51 @@ export default function Playlist() {
         </select>
       </section>
 
-      <section className="rounded-xl border border-primary/15 p-4 bg-white dark:bg-background-dark/50 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold">Tracks</h2>
+      <section className="space-y-3 rounded-2xl border border-primary/15 bg-white p-4 dark:bg-background-dark/50">
+        <div className="flex items-center gap-2">
           <button
-            className="h-10 px-4 rounded-full bg-primary text-background-dark font-bold disabled:opacity-60"
+            className="inline-flex h-10 items-center rounded-full bg-primary px-4 text-sm font-bold text-background-dark disabled:opacity-60"
             onClick={() => startPlayback(0)}
-            disabled={!tracks.length}
+            disabled={!visibleTracks.length}
           >
+            <span className="material-symbols-outlined mr-1 text-base fill-1">play_arrow</span>
             Play
+          </button>
+          <button
+            className="inline-flex h-10 items-center rounded-full border border-primary/40 px-4 text-sm font-bold text-primary disabled:opacity-60"
+            onClick={onShufflePlay}
+            disabled={!visibleTracks.length}
+          >
+            <span className="material-symbols-outlined mr-1 text-base">shuffle</span>
+            Shuffle
+          </button>
+
+          <button
+            className="ml-auto inline-flex h-8 items-center rounded-full bg-slate-200 px-3 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            onClick={() => setTrackSortMode((current) => (current === 'custom' ? 'title' : 'custom'))}
+          >
+            {trackSortMode === 'custom' ? 'Custom order' : 'Title order'}
           </button>
         </div>
 
-        {isLoading && <p className="text-sm text-slate-500">Loading songs...</p>}
-        {!isLoading && !tracks.length && <p className="text-sm text-slate-500">No songs yet. Add from search below.</p>}
+        <input
+          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary dark:border-primary/20 dark:bg-background-dark/60"
+          placeholder="Find in playlist"
+          value={trackSearch}
+          onChange={(event) => setTrackSearch(event.target.value)}
+        />
 
-        <div className="space-y-2">
-          {tracks.map((entry, index) => (
+        <div className="space-y-1">
+          {isLoading && <p className="text-sm text-slate-500">Loading songs...</p>}
+          {!isLoading && !visibleTracks.length && <p className="text-sm text-slate-500">No songs match your filter.</p>}
+
+          {visibleTracks.map((entry, index) => (
             <div
               key={`${entry.spotifyTrackId}-${entry.position}`}
-              className="flex items-center gap-3 rounded-lg p-2 border border-slate-200 dark:border-primary/10"
+              className="group flex items-center gap-3 rounded-lg px-1 py-2 hover:bg-slate-200/70 dark:hover:bg-slate-800/50"
             >
               <button
-                className="w-7 text-sm text-slate-500 font-bold"
+                className="w-7 text-center text-sm font-bold text-slate-500"
                 onClick={() => startPlayback(index)}
               >
                 {index + 1}
@@ -269,24 +391,26 @@ export default function Playlist() {
               <img
                 src={entry.track.album.images?.[0]?.url || 'https://placehold.co/80x80?text=Track'}
                 alt={entry.track.name}
-                className="w-12 h-12 rounded-md object-cover"
+                className="h-12 w-12 rounded-md object-cover"
               />
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm truncate">{entry.track.name}</p>
-                <p className="text-xs text-slate-500 truncate">{entry.track.artists.map((artist) => artist.name).join(', ')}</p>
-              </div>
+              <button className="min-w-0 flex-1 text-left" onClick={() => startPlayback(index)}>
+                <p className="truncate text-sm font-semibold">{entry.track.name}</p>
+                <p className="truncate text-xs text-slate-500">{entry.track.artists.map((artist) => artist.name).join(', ')}</p>
+              </button>
+              <p className="w-11 text-right text-xs text-slate-500">{formatDuration(entry.track.duration_ms)}</p>
               <button
-                className="h-8 px-3 rounded-md border border-red-300 text-red-600 text-xs font-semibold"
+                className="h-8 rounded-full px-2 text-red-500"
                 onClick={() => onRemoveSong(entry.spotifyTrackId)}
+                aria-label={`Remove ${entry.track.name}`}
               >
-                Remove
+                <span className="material-symbols-outlined text-lg">delete</span>
               </button>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="rounded-xl border border-primary/15 p-4 bg-white dark:bg-background-dark/50 space-y-3">
+      <section className="space-y-3 rounded-2xl border border-primary/15 bg-white p-4 dark:bg-background-dark/50">
         <h2 className="font-bold">Add songs</h2>
         <div className="flex gap-2">
           <input
@@ -295,7 +419,7 @@ export default function Playlist() {
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
           />
-          <button className="h-11 px-4 rounded-lg border border-primary text-primary font-bold" onClick={onSearchSongs}>
+          <button className="h-11 rounded-lg border border-primary px-4 font-bold text-primary" onClick={onSearchSongs}>
             Search
           </button>
         </div>
