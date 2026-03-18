@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { reorderPlaylistSongs } from '../lib/api';
+import { removeSongFromPlaylist, reorderPlaylistSongs } from '../lib/api';
 import { getPlayerState, subscribePlayerState, updatePlayerState } from '../lib/playerState';
 
 type QueueTab = 'upcoming' | 'history';
@@ -9,6 +9,7 @@ export default function Queue() {
   const [activeTab, setActiveTab] = useState<QueueTab>('upcoming');
   const [playerState, setPlayerState] = useState(getPlayerState());
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     return subscribePlayerState(() => {
@@ -28,37 +29,81 @@ export default function Queue() {
     [playerState.queue, playerState.currentIndex],
   );
 
-  function removeFromQueue(trackId: string) {
-    updatePlayerState((state) => {
-      const removeIndex = state.queue.findIndex((track) => track.id === trackId);
-      if (removeIndex < 0) {
-        return state;
-      }
+  async function syncPlaylistFromQueue(
+    playlistId: string,
+    previousQueue: typeof playerState.queue,
+    nextQueue: typeof playerState.queue,
+  ) {
+    const removedTrackIds = previousQueue
+      .filter((previousTrack) => !nextQueue.some((nextTrack) => nextTrack.id === previousTrack.id))
+      .map((track) => track.id);
 
-      const nextQueue = state.queue.filter((track) => track.id !== trackId);
-      if (!nextQueue.length) {
-        return {
-          ...state,
-          queue: [],
-          currentIndex: 0,
-          isPlaying: false,
-        };
-      }
+    for (const trackId of removedTrackIds) {
+      await removeSongFromPlaylist(playlistId, trackId);
+    }
 
-      const nextIndex = removeIndex <= state.currentIndex ? Math.max(0, state.currentIndex - 1) : state.currentIndex;
-      return {
-        ...state,
-        queue: nextQueue,
-        currentIndex: Math.min(nextIndex, nextQueue.length - 1),
-      };
-    });
+    const orders = nextQueue.map((track, index) => ({
+      spotifyTrackId: track.id,
+      position: index,
+    }));
+    await reorderPlaylistSongs(playlistId, orders);
   }
 
-  function clearUpcoming() {
-    updatePlayerState((state) => ({
-      ...state,
-      queue: state.queue.slice(0, state.currentIndex + 1),
-    }));
+  async function removeFromQueue(trackId: string) {
+    const previousState = getPlayerState();
+    const removeIndex = previousState.queue.findIndex((track) => track.id === trackId);
+    if (removeIndex < 0) {
+      return;
+    }
+
+    const nextQueue = previousState.queue.filter((track) => track.id !== trackId);
+    const nextState = {
+      ...previousState,
+      queue: nextQueue,
+      currentIndex: nextQueue.length
+        ? Math.min(removeIndex <= previousState.currentIndex ? Math.max(0, previousState.currentIndex - 1) : previousState.currentIndex, nextQueue.length - 1)
+        : 0,
+      isPlaying: nextQueue.length ? previousState.isPlaying : false,
+    };
+
+    setError('');
+    setIsSavingOrder(true);
+    updatePlayerState(() => nextState);
+
+    try {
+      if (previousState.playlistId) {
+        await syncPlaylistFromQueue(previousState.playlistId, previousState.queue, nextQueue);
+      }
+    } catch (err) {
+      updatePlayerState(() => previousState);
+      setError(err instanceof Error ? err.message : 'Failed to remove track from playlist.');
+    } finally {
+      setIsSavingOrder(false);
+    }
+  }
+
+  async function clearUpcoming() {
+    const previousState = getPlayerState();
+    const nextQueue = previousState.queue.slice(0, previousState.currentIndex + 1);
+    const nextState = {
+      ...previousState,
+      queue: nextQueue,
+    };
+
+    setError('');
+    setIsSavingOrder(true);
+    updatePlayerState(() => nextState);
+
+    try {
+      if (previousState.playlistId) {
+        await syncPlaylistFromQueue(previousState.playlistId, previousState.queue, nextQueue);
+      }
+    } catch (err) {
+      updatePlayerState(() => previousState);
+      setError(err instanceof Error ? err.message : 'Failed to clear upcoming queue.');
+    } finally {
+      setIsSavingOrder(false);
+    }
   }
 
   function jumpToTrack(trackId: string) {
@@ -87,8 +132,12 @@ export default function Queue() {
     }));
 
     setIsSavingOrder(true);
+    setError('');
     try {
       await reorderPlaylistSongs(playerState.playlistId, orders);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save queue order.');
+      throw err;
     } finally {
       setIsSavingOrder(false);
     }
@@ -141,6 +190,8 @@ export default function Queue() {
           Clear next
         </button>
       </header>
+
+      {error && <p className="px-4 pt-3 text-sm text-red-500">{error}</p>}
 
       {currentTrack && (
         <div className="mx-4 mt-4 rounded-xl p-3 border border-primary/20 bg-primary/5 flex items-center gap-3">
