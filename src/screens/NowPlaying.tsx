@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ApiAlbumTrack, ApiArtist, getSongDetails } from '../lib/api';
+import { ApiAlbumTrack, ApiArtist, ApiLyrics, getSongDetails } from '../lib/api';
 import { getPlayerState, msToClock, subscribePlayerState, updatePlayerState } from '../lib/playerState';
 
 type LyricLine = {
@@ -90,15 +90,68 @@ async function extractArtworkPalette(imageUrl: string) {
   });
 }
 
-function buildLyricPreviewLines(trackName: string, artistName: string, durationMs: number): LyricLine[] {
-  const safeDuration = Math.max(durationMs, 20_000);
-  return [
-    { startMs: 0, text: `${trackName}, we start slow and breathe in.` },
-    { startMs: Math.floor(safeDuration * 0.22), text: `Echoes of ${artistName} move through the room.` },
-    { startMs: Math.floor(safeDuration * 0.44), text: `Heartbeat and rhythm lock into the night.` },
-    { startMs: Math.floor(safeDuration * 0.66), text: `Every note pulls the story forward.` },
-    { startMs: Math.floor(safeDuration * 0.84), text: `Hold this moment, let the final bars glow.` },
-  ];
+function parseTimestampToMs(timestamp: string) {
+  const [minutesPart, restPart] = timestamp.split(':');
+  if (!minutesPart || !restPart) {
+    return null;
+  }
+
+  const [secondsPart, fractionPart = '0'] = restPart.split(/[.,]/);
+  const minutes = Number.parseInt(minutesPart, 10);
+  const seconds = Number.parseInt(secondsPart, 10);
+
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+    return null;
+  }
+
+  const normalizedFraction = fractionPart.length === 2
+    ? Number.parseInt(fractionPart, 10) * 10
+    : Number.parseInt(fractionPart.padEnd(3, '0').slice(0, 3), 10);
+
+  return (minutes * 60 * 1000) + (seconds * 1000) + (Number.isFinite(normalizedFraction) ? normalizedFraction : 0);
+}
+
+function parseSyncedLyrics(lyrics: string | null | undefined): LyricLine[] {
+  if (!lyrics) {
+    return [];
+  }
+
+  const lines: LyricLine[] = [];
+  const rawLines = lyrics.split(/\r?\n/);
+
+  for (const rawLine of rawLines) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    const match = line.match(/^\[(\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\](.*)$/);
+    if (!match) {
+      continue;
+    }
+
+    const startMs = parseTimestampToMs(match[1]);
+    const text = (match[2] || '').trim();
+    if (startMs === null || !text) {
+      continue;
+    }
+
+    lines.push({ startMs, text });
+  }
+
+  return lines.sort((a, b) => a.startMs - b.startMs);
+}
+
+function getWordProgressIndex(line: LyricLine, nextLine: LyricLine | undefined, elapsedMs: number) {
+  const words = line.text.split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return -1;
+  }
+
+  const lineEndMs = nextLine?.startMs ?? (line.startMs + 3500);
+  const windowMs = Math.max(1, lineEndMs - line.startMs);
+  const progress = clamp((elapsedMs - line.startMs) / windowMs, 0, 1);
+  return Math.min(words.length - 1, Math.floor(progress * words.length));
 }
 
 export default function NowPlaying() {
@@ -106,6 +159,7 @@ export default function NowPlaying() {
   const [playerState, setPlayerState] = useState(getPlayerState());
   const [artistInfo, setArtistInfo] = useState<ApiArtist | null>(null);
   const [relatedTracks, setRelatedTracks] = useState<ApiAlbumTrack[]>([]);
+  const [lyrics, setLyrics] = useState<ApiLyrics | null>(null);
   const [detailError, setDetailError] = useState('');
   const [isLyricsExpanded, setIsLyricsExpanded] = useState(false);
   const [artGradient, setArtGradient] = useState({ primary: '#1b3f2c', secondary: '#0f2017' });
@@ -129,6 +183,7 @@ export default function NowPlaying() {
     if (!currentTrack) {
       setArtistInfo(null);
       setRelatedTracks([]);
+      setLyrics(null);
       setDetailError('');
       return;
     }
@@ -138,6 +193,7 @@ export default function NowPlaying() {
         setDetailError('');
         const details = await getSongDetails(currentTrack.id);
         setArtistInfo(details.artist || null);
+        setLyrics(details.lyrics || null);
 
         const tracks = (details.albumTracks?.items || [])
           .filter((track) => track.id !== currentTrack.id)
@@ -146,6 +202,7 @@ export default function NowPlaying() {
       } catch (error) {
         setArtistInfo(null);
         setRelatedTracks([]);
+        setLyrics(null);
         setDetailError(error instanceof Error ? error.message : 'Unable to load track details.');
       }
     }
@@ -220,7 +277,12 @@ export default function NowPlaying() {
 
   const elapsedMs = playerState.currentTimeMs || 0;
   const progress = currentTrack?.durationMs ? Math.min(100, (elapsedMs / currentTrack.durationMs) * 100) : 0;
-  const lyricLines = currentTrack ? buildLyricPreviewLines(currentTrack.name, currentTrack.artist, currentTrack.durationMs) : [];
+  const lyricLines = useMemo(() => parseSyncedLyrics(lyrics?.synced), [lyrics?.synced]);
+  const plainLyricLines = useMemo(
+    () => (lyrics?.plain || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+    [lyrics?.plain],
+  );
+  const hasLyrics = lyricLines.length > 0 || plainLyricLines.length > 0;
   const activeLyricIndex = lyricLines.findIndex((line, index) => {
     const nextStartMs = lyricLines[index + 1]?.startMs ?? Number.MAX_SAFE_INTEGER;
     return elapsedMs >= line.startMs && elapsedMs < nextStartMs;
@@ -343,8 +405,16 @@ export default function NowPlaying() {
         className="relative z-10 mt-8 space-y-3 rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-sm"
         role="button"
         tabIndex={0}
-        onClick={() => setIsLyricsExpanded(true)}
+        onClick={() => {
+          if (hasLyrics) {
+            setIsLyricsExpanded(true);
+          }
+        }}
         onKeyDown={(event) => {
+          if (!hasLyrics) {
+            return;
+          }
+
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             setIsLyricsExpanded(true);
@@ -353,26 +423,40 @@ export default function NowPlaying() {
       >
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold uppercase tracking-widest text-primary">Lyrics Preview</h3>
-          <span className="text-xs text-emerald-100/80">Tap to expand</span>
+          <span className="text-xs text-emerald-100/80">{hasLyrics ? 'Tap to expand' : 'Not available'}</span>
         </div>
-        <div className="space-y-1">
-          {previewLineIndices.map((lineIndex) => {
-            const line = lyricLines[lineIndex];
-            if (!line) {
-              return null;
-            }
+        {!hasLyrics && (
+          <p className="text-sm text-emerald-100/80">Lyrics are not available for this song yet.</p>
+        )}
+        {lyricLines.length > 0 && (
+          <div className="space-y-1">
+            {previewLineIndices.map((lineIndex) => {
+              const line = lyricLines[lineIndex];
+              if (!line) {
+                return null;
+              }
 
-            const isActive = lineIndex === activeLyricIndex;
-            return (
-              <p
-                key={`${line.startMs}-${lineIndex}`}
-                className={`text-sm transition-colors ${isActive ? 'text-white font-bold' : 'text-emerald-100/80'}`}
-              >
-                {line.text}
+              const isActive = lineIndex === activeLyricIndex;
+              return (
+                <p
+                  key={`${line.startMs}-${lineIndex}`}
+                  className={`text-sm transition-colors ${isActive ? 'text-white font-bold' : 'text-emerald-100/80'}`}
+                >
+                  {line.text}
+                </p>
+              );
+            })}
+          </div>
+        )}
+        {lyricLines.length === 0 && plainLyricLines.length > 0 && (
+          <div className="space-y-1">
+            {plainLyricLines.slice(0, 3).map((line, index) => (
+              <p key={`${line}-${index}`} className="text-sm text-emerald-100/80">
+                {line}
               </p>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="relative z-10 mt-4 space-y-3 rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-sm">
@@ -467,23 +551,59 @@ export default function NowPlaying() {
             </div>
 
             <div className="flex-1 overflow-y-auto hide-scrollbar rounded-2xl border border-white/20 bg-white/5 p-4">
-              <div className="space-y-4 py-6">
-                {lyricLines.map((line, index) => {
-                  const isActive = index === activeLyricIndex;
+              {lyricLines.length > 0 && (
+                <div className="space-y-4 py-6">
+                  {lyricLines.map((line, index) => {
+                    const isActive = index === activeLyricIndex;
+                    const words = line.text.split(/\s+/).filter(Boolean);
+                    const activeWordIndex = isActive
+                      ? getWordProgressIndex(line, lyricLines[index + 1], elapsedMs)
+                      : -1;
 
-                  return (
-                    <p
-                      key={`${line.startMs}-${index}`}
-                      ref={(element) => {
-                        lyricLineRefs.current[index] = element;
-                      }}
-                      className={`text-lg leading-relaxed transition-all ${isActive ? 'text-white font-black scale-[1.01]' : 'text-emerald-100/70 font-semibold'}`}
-                    >
-                      {line.text}
+                    return (
+                      <p
+                        key={`${line.startMs}-${index}`}
+                        ref={(element) => {
+                          lyricLineRefs.current[index] = element;
+                        }}
+                        className={`text-lg leading-relaxed transition-all ${isActive ? 'font-black scale-[1.01]' : 'font-semibold'}`}
+                      >
+                        {words.map((word, wordIndex) => (
+                          <span
+                            key={`${word}-${wordIndex}`}
+                            className={
+                              isActive
+                                ? wordIndex <= activeWordIndex
+                                  ? 'text-white'
+                                  : 'text-emerald-100/70'
+                                : 'text-emerald-100/70'
+                            }
+                          >
+                            {word}
+                            {wordIndex < words.length - 1 ? ' ' : ''}
+                          </span>
+                        ))}
+                      </p>
+                    );
+                  })}
+                </div>
+              )}
+
+              {lyricLines.length === 0 && plainLyricLines.length > 0 && (
+                <div className="space-y-4 py-6">
+                  {plainLyricLines.map((line, index) => (
+                    <p key={`${line}-${index}`} className="text-lg leading-relaxed text-emerald-100/85 font-semibold">
+                      {line}
                     </p>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
+
+              {!hasLyrics && (
+                <div className="flex h-full items-center justify-center px-4 text-center">
+                  <p className="text-sm text-emerald-100/80">Lyrics are unavailable for this track.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

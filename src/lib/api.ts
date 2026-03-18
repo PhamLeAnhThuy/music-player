@@ -57,6 +57,12 @@ export type ApiAlbumTrack = {
   artists?: Array<{ id?: string; name: string }>;
 };
 
+export type ApiLyrics = {
+  synced: string | null;
+  plain: string | null;
+  provider: 'lrclib';
+};
+
 export type ApiProfile = {
   id: string;
   email: string;
@@ -436,7 +442,7 @@ export async function removeSongFromPlaylist(playlistId: string, spotifyTrackId:
 }
 
 export async function getSongDetails(spotifyTrackId: string) {
-  return apiRequest<{ track: ApiTrack; albumTracks?: { items?: ApiAlbumTrack[] }; artist?: ApiArtist | null }>(`/api/songs/${spotifyTrackId}`);
+  return apiRequest<{ track: ApiTrack; albumTracks?: { items?: ApiAlbumTrack[] }; artist?: ApiArtist | null; lyrics?: ApiLyrics | null }>(`/api/songs/${spotifyTrackId}`);
 }
 
 export function extractUserIdFromLoginResponse(response: LoginResponse): string | null {
