@@ -25,6 +25,22 @@ export type ApiTrack = {
   };
 };
 
+export type ApiProfile = {
+  id: string;
+  email: string;
+  name: string | null;
+  avatar_url: string | null;
+};
+
+export type ApiPlaylist = {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  cover_url: string | null;
+  created_at: string;
+};
+
 type LoginResponse = {
   session?: {
     user?: {
@@ -102,6 +118,52 @@ export async function getRecommendations(userId: string) {
     headers: {
       'x-user-id': userId,
     },
+  });
+}
+
+function requireUserIdHeader() {
+  const userId = getStoredUserId();
+  if (!userId) {
+    throw new Error('Please sign in first.');
+  }
+
+  return {
+    'x-user-id': userId,
+  };
+}
+
+export async function getUserProfile() {
+  return apiRequest<{ profile: ApiProfile }>('/api/user/profile', {
+    headers: requireUserIdHeader(),
+  });
+}
+
+export async function updateUserProfile(payload: { name?: string; avatar_url?: string }) {
+  return apiRequest<{ profile: ApiProfile }>('/api/user/profile', {
+    method: 'PATCH',
+    headers: requireUserIdHeader(),
+    body: payload,
+  });
+}
+
+export async function listUserPlaylists() {
+  return apiRequest<{ playlists: ApiPlaylist[] }>('/api/playlists', {
+    headers: requireUserIdHeader(),
+  });
+}
+
+export async function createUserPlaylist(payload: { name: string; description?: string; cover_url?: string }) {
+  return apiRequest<{ playlist: ApiPlaylist }>('/api/playlists', {
+    method: 'POST',
+    headers: requireUserIdHeader(),
+    body: payload,
+  });
+}
+
+export async function deleteUserPlaylist(playlistId: string) {
+  return apiRequest<{ success: boolean }>(`/api/playlists/${playlistId}`, {
+    method: 'DELETE',
+    headers: requireUserIdHeader(),
   });
 }
 
