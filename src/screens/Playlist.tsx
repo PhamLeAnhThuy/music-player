@@ -1,173 +1,318 @@
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  ApiPlaylist,
+  ApiTrack,
+  addSongToPlaylist,
+  getSongDetails,
+  listPlaylistSongs,
+  listUserPlaylists,
+  removeSongFromPlaylist,
+  searchSongs,
+} from '../lib/api';
+import { PlayerTrack, setPlayerState, updatePlayerState } from '../lib/playerState';
+
+type PlaylistTrackView = {
+  spotifyTrackId: string;
+  position: number;
+  track: ApiTrack;
+};
+
+function toPlayerTrack(track: ApiTrack): PlayerTrack {
+  return {
+    id: track.id,
+    name: track.name,
+    artist: track.artists.map((artist) => artist.name).join(', ') || 'Unknown artist',
+    album: track.album.name,
+    imageUrl: track.album.images?.[0]?.url || '',
+    previewUrl: track.preview_url,
+    durationMs: track.duration_ms,
+  };
+}
 
 export default function Playlist() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
+  const [tracks, setTracks] = useState<PlaylistTrackView[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [error, setError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ApiTrack[]>([]);
+
+  const selectedPlaylist = useMemo(
+    () => playlists.find((playlist) => playlist.id === selectedPlaylistId) || null,
+    [playlists, selectedPlaylistId],
+  );
+
+  async function loadPlaylists() {
+    const response = await listUserPlaylists();
+    const items = response.playlists || [];
+    setPlaylists(items);
+
+    if (!items.length) {
+      setSelectedPlaylistId('');
+      return;
+    }
+
+    const queryPlaylistId = searchParams.get('playlistId');
+    const isQueryPlaylistValid = queryPlaylistId && items.some((playlist) => playlist.id === queryPlaylistId);
+    const nextPlaylistId = isQueryPlaylistValid ? (queryPlaylistId as string) : items[0].id;
+    setSelectedPlaylistId(nextPlaylistId);
+  }
+
+  async function loadPlaylistTracks(playlistId: string) {
+    if (!playlistId) {
+      setTracks([]);
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    try {
+      const response = await listPlaylistSongs(playlistId);
+      const sortedSongs = [...(response.songs || [])].sort((a, b) => a.position - b.position);
+
+      const detailedTracks = await Promise.all(
+        sortedSongs.map(async (song) => {
+          try {
+            const detail = await getSongDetails(song.spotify_track_id);
+            return {
+              spotifyTrackId: song.spotify_track_id,
+              position: song.position,
+              track: detail.track,
+            };
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      setTracks(detailedTracks.filter((item): item is PlaylistTrackView => item !== null));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load playlist songs.');
+      setTracks([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    async function bootstrap() {
+      try {
+        await loadPlaylists();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load playlists.');
+      }
+    }
+
+    void bootstrap();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedPlaylistId) {
+      setTracks([]);
+      return;
+    }
+
+    void loadPlaylistTracks(selectedPlaylistId);
+  }, [selectedPlaylistId]);
+
+  async function onSearchSongs() {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      const response = await searchSongs(searchQuery.trim(), 8);
+      setSearchResults(response.tracks.items || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to search songs.');
+    }
+  }
+
+  async function onAddSong(track: ApiTrack) {
+    if (!selectedPlaylistId) {
+      setError('Please choose a playlist first.');
+      return;
+    }
+
+    try {
+      setIsAdding(true);
+      setError('');
+      await addSongToPlaylist(selectedPlaylistId, {
+        spotifyTrackId: track.id,
+        position: tracks.length,
+      });
+      await loadPlaylistTracks(selectedPlaylistId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add song to playlist.');
+    } finally {
+      setIsAdding(false);
+    }
+  }
+
+  async function onRemoveSong(spotifyTrackId: string) {
+    if (!selectedPlaylistId) {
+      return;
+    }
+
+    try {
+      setError('');
+      await removeSongFromPlaylist(selectedPlaylistId, spotifyTrackId);
+      await loadPlaylistTracks(selectedPlaylistId);
+      updatePlayerState((state) => {
+        if (state.playlistId !== selectedPlaylistId) {
+          return state;
+        }
+
+        const nextQueue = state.queue.filter((item) => item.id !== spotifyTrackId);
+        const nextIndex = nextQueue.length ? Math.min(state.currentIndex, nextQueue.length - 1) : 0;
+        return {
+          ...state,
+          queue: nextQueue,
+          currentIndex: nextIndex,
+          isPlaying: nextQueue.length ? state.isPlaying : false,
+        };
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove song.');
+    }
+  }
+
+  function startPlayback(startIndex: number) {
+    if (!tracks.length || !selectedPlaylist) {
+      return;
+    }
+
+    setPlayerState({
+      playlistId: selectedPlaylist.id,
+      playlistName: selectedPlaylist.name,
+      queue: tracks.map((entry) => toPlayerTrack(entry.track)),
+      currentIndex: startIndex,
+      isPlaying: true,
+    });
+    navigate('/now-playing');
+  }
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 md:px-8 bg-background-light dark:bg-background-dark min-h-screen">
-      <header className="flex flex-col md:flex-row items-end gap-8 mb-10">
-        <div className="w-full md:w-64 h-64 flex-shrink-0 shadow-2xl rounded-lg overflow-hidden">
-          <img alt="Playlist Cover" className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAgzNym6fAb0Tu_srz565Nqfn7gVux9ENtDdwTUCmzQincyslkrhJje4da7ZoXr2rB0z-tbX7_c0RPYEakzx6UrCYnxswE7VzgQV5ZlWohAEjPJqUP8qg_-whL3HACLE1Olv0ZQEYHAT_bRKtleCRrpCXUlXW6HZJ3qHXKaBsXvaz37ApF_HlfMVKbkyoru5a8PJuE0oHDC7cTxiugQO0bJQ1OP2xRiyDjjcwQjcjl23nm3SmBGyjAd7p5jcOJVDw-qvLQS3IYVaHw" />
-        </div>
-        <div className="flex-grow flex flex-col items-start gap-4">
-          <span className="text-xs font-bold uppercase tracking-widest text-primary">Public Playlist</span>
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight">Late Night Grooves</h1>
-          <p className="text-slate-600 dark:text-slate-400 text-lg max-w-2xl">
-            Deep bass, atmospheric synths, and smooth rhythms for your midnight focus sessions. Curated by the community.
-          </p>
-          <div className="flex items-center gap-2 mt-2">
-            <img alt="Creator Avatar" className="w-6 h-6 rounded-full" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDJQqkpQaXc3D1rhrFulE4hKUJ9Jbyro_mRg_0vAJKeb0kIr57ko_odVEnSddK-Unz6MYCyjVgkipxfCy-JAMvaoM8WEcYDAtt9wm4Hoe0HCIrrtitvopDn2hKjL5fn0zagPibH1xAGascl_wRvEUPXMl5x7WFF5wVWqKym7iqDy8wH3wc5-qyL9pPNKXeiF9-BiAGECHJUKNrMMtKj7Tfg0aPjWS3C57WFXfdrYMeowKiAz2PUDCblMhuxTB5_N7fwQbO-MMI-9ZY" />
-            <span className="font-semibold text-sm">Marcus Chen</span>
-            <span className="text-slate-500 mx-1">•</span>
-            <span className="text-sm text-slate-500">2,483 likes</span>
-            <span className="text-slate-500 mx-1">•</span>
-            <span className="text-sm text-slate-500">24 songs, 1 hr 15 min</span>
-          </div>
-        </div>
+    <div className="max-w-4xl mx-auto px-4 py-6 pb-28 bg-background-light dark:bg-background-dark min-h-screen space-y-5">
+      <header className="space-y-2">
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Playlist</p>
+        <h1 className="text-3xl font-bold tracking-tight">{selectedPlaylist?.name || 'Your playlist'}</h1>
+        <p className="text-sm text-slate-600 dark:text-slate-400">Manage songs and send your queue directly to Now Playing.</p>
       </header>
 
-      <div className="flex items-center gap-6 mb-8">
-        <button className="bg-primary hover:scale-105 transition-transform text-background-dark w-14 h-14 rounded-full flex items-center justify-center shadow-lg">
-          <span className="material-icons text-3xl">play_arrow</span>
-        </button>
-        <button className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 px-6 py-2.5 rounded-full font-bold flex items-center gap-2 transition-colors">
-          <span className="material-icons text-xl">add</span>
-          Add song
-        </button>
-        <button className="text-slate-400 hover:text-primary transition-colors">
-          <span className="material-icons text-3xl">favorite_border</span>
-        </button>
-        <button className="text-slate-400 hover:text-primary transition-colors">
-          <span className="material-icons text-3xl">more_horiz</span>
-        </button>
-      </div>
+      <section className="rounded-xl border border-primary/15 p-4 bg-white dark:bg-background-dark/50 space-y-3">
+        <label className="text-xs uppercase tracking-widest text-slate-500 font-bold">Choose playlist</label>
+        <select
+          className="w-full h-11 rounded-lg border border-slate-200 dark:border-primary/20 bg-white dark:bg-background-dark/60 px-3"
+          value={selectedPlaylistId}
+          onChange={(event) => {
+            const nextId = event.target.value;
+            setSelectedPlaylistId(nextId);
+            setSearchParams(nextId ? { playlistId: nextId } : {});
+          }}
+        >
+          {playlists.length === 0 && <option value="">No playlists found</option>}
+          {playlists.map((playlist) => (
+            <option key={playlist.id} value={playlist.id}>
+              {playlist.name}
+            </option>
+          ))}
+        </select>
+      </section>
 
-      <div className="grid grid-cols-12 px-4 py-2 border-b border-primary/10 text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">
-        <div className="col-span-1 text-center">#</div>
-        <div className="col-span-6 md:col-span-5">Title</div>
-        <div className="hidden md:block md:col-span-3">Album</div>
-        <div className="hidden md:block md:col-span-2 text-right">Date Added</div>
-        <div className="col-span-5 md:col-span-1 text-right">
-          <span className="material-icons text-base">schedule</span>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <div className="grid grid-cols-12 items-center px-4 py-3 rounded-lg hover:bg-primary/5 group transition-colors cursor-pointer">
-          <div className="col-span-1 text-center text-slate-500 group-hover:text-primary transition-colors">1</div>
-          <div className="col-span-6 md:col-span-5 flex items-center gap-4">
-            <img alt="Album Art" className="w-10 h-10 rounded" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDu6xB1qP-1a_pUNyCInfusBywaN1Lk-xK0RncsWdvUYI4a-MqBU3fHSjzMR6kqJDefjgdkLyHZPA5kEJjJxx5DuXQl6RgVlx0ap_4kYGD-FVrm9iwm5wsUrJYBeHiAtAv_eBjcP8SiGNdPSi_og8m8AXS0lRaJFk2AhXIa8JreKCz4R3nuWmihBN4moXRvtLcjidg795wakE1TzT9ceq-2y9TeA08FPefYu2rl599uHSha6I09O0vHwK2LuvgBdPsrTlVA8hchn_s" />
-            <div className="flex flex-col overflow-hidden">
-              <span className="font-medium truncate">Neon Horizons</span>
-              <span className="text-sm text-slate-500 truncate group-hover:text-slate-300">Synthwave Collective</span>
-            </div>
-          </div>
-          <div className="hidden md:block md:col-span-3 text-sm text-slate-500 truncate">Cybernetic Pulse</div>
-          <div className="hidden md:block md:col-span-2 text-sm text-slate-500 text-right">2 days ago</div>
-          <div className="col-span-5 md:col-span-1 flex items-center justify-end gap-4">
-            <span className="material-icons text-primary opacity-0 group-hover:opacity-100 text-xl transition-opacity">favorite</span>
-            <span className="text-sm text-slate-500">3:45</span>
-          </div>
+      <section className="rounded-xl border border-primary/15 p-4 bg-white dark:bg-background-dark/50 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-bold">Tracks</h2>
+          <button
+            className="h-10 px-4 rounded-full bg-primary text-background-dark font-bold disabled:opacity-60"
+            onClick={() => startPlayback(0)}
+            disabled={!tracks.length}
+          >
+            Play
+          </button>
         </div>
 
-        <div className="grid grid-cols-12 items-center px-4 py-3 rounded-lg bg-primary/10 group transition-colors cursor-pointer">
-          <div className="col-span-1 text-center text-primary">
-            <span className="material-icons text-xl animate-pulse">equalizer</span>
-          </div>
-          <div className="col-span-6 md:col-span-5 flex items-center gap-4">
-            <img alt="Album Art" className="w-10 h-10 rounded" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBF-AiUQWQ72-WcA-ronipxpkrVdiPts_FPpxe6UxySDmGmbWwetRXRssz2U24n6ms8hyk2fqb5EvAwwjjlAyR7xz_Q_h7Ulg7Ssx0thf-aDV2pJLeTZnenuAvy9staNDeQ0n3j0V7eb618i8rXAfdUS3zT3X3O4fzF1Tv3Aivh4W84DlUQhv6I5nV74uysecTIRSsdRZQpc6DTnPPzzoe-wVy1DduH7JxtzwGKSyM-a0_xFqCaQKWQeNXK6V_gc3hbCP9a-Cm2tRA" />
-            <div className="flex flex-col overflow-hidden">
-              <span className="font-medium text-primary truncate">Midnight Echoes</span>
-              <span className="text-sm text-slate-500 truncate group-hover:text-slate-300">The Dreamers</span>
-            </div>
-          </div>
-          <div className="hidden md:block md:col-span-3 text-sm text-slate-500 truncate">Visions in the Dark</div>
-          <div className="hidden md:block md:col-span-2 text-sm text-slate-500 text-right">5 days ago</div>
-          <div className="col-span-5 md:col-span-1 flex items-center justify-end gap-4">
-            <span className="material-icons text-primary text-xl">favorite</span>
-            <span className="text-sm text-slate-500">4:12</span>
-          </div>
-        </div>
+        {isLoading && <p className="text-sm text-slate-500">Loading songs...</p>}
+        {!isLoading && !tracks.length && <p className="text-sm text-slate-500">No songs yet. Add from search below.</p>}
 
-        <div className="grid grid-cols-12 items-center px-4 py-3 rounded-lg hover:bg-primary/5 group transition-colors cursor-pointer">
-          <div className="col-span-1 text-center text-slate-500 group-hover:text-primary transition-colors">3</div>
-          <div className="col-span-6 md:col-span-5 flex items-center gap-4">
-            <img alt="Album Art" className="w-10 h-10 rounded" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB7U19M41Y3QGcaTjQexL-q0qLBHSyX2nWhCP-VRiPg2FKboHJX7qmYqoEp4CslnNcrzRGN0Ee8hg3LXUalr6lEG3kvzWwr42GuhdV6skwDhjDpmfWrmUw_rrqvjsIVKY2B2dAgM6OVCdYtjAtcGDiyKc8KvPC3xBrLQANBCXvx3c22d6ABYKtCgXdsP5uTwt-y2YS2ccHCfJx3CDsUhAnhZDSnFYNlQW8tRY9rmokitfpHB3ZYm6x3Jti0clRXVMdxW2v5f8OV-Pc" />
-            <div className="flex flex-col overflow-hidden">
-              <span className="font-medium truncate">Subterranean</span>
-              <span className="text-sm text-slate-500 truncate group-hover:text-slate-300">Low Frequency</span>
-            </div>
-          </div>
-          <div className="hidden md:block md:col-span-3 text-sm text-slate-500 truncate">Deep Dive EP</div>
-          <div className="hidden md:block md:col-span-2 text-sm text-slate-500 text-right">1 week ago</div>
-          <div className="col-span-5 md:col-span-1 flex items-center justify-end gap-4">
-            <span className="material-icons text-primary opacity-0 group-hover:opacity-100 text-xl transition-opacity">favorite_border</span>
-            <span className="text-sm text-slate-500">5:01</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-12 items-center px-4 py-3 rounded-lg hover:bg-primary/5 group transition-colors cursor-pointer">
-          <div className="col-span-1 text-center text-slate-500 group-hover:text-primary transition-colors">4</div>
-          <div className="col-span-6 md:col-span-5 flex items-center gap-4">
-            <img alt="Album Art" className="w-10 h-10 rounded" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB7xSxfs8ioQT4XLdo2XtMwwLV4KspVa9JM4oM3dw4bGQqXSnWxadMYPpUeZjNVxMZ3lVRYQ0sSQPRK4qp_8wSbq8mVjeYczkysOYNrxibKi-9Q8QbYCJEqRRTd7123kHysHNNybi9KgTFgQZ9skvxGUx8W51ZxrwZ5eNdQIElabLgW40OwAB34WZrGpqx2Phie7tRcCv-Mq7u8iJHE5-bLICps8mKwVMCMM5wCCAFcOV4ezA-cdEW7KCDRzQvjqp9XKoSs8N4py7U" />
-            <div className="flex flex-col overflow-hidden">
-              <span className="font-medium truncate">Static Wind</span>
-              <span className="text-sm text-slate-500 truncate group-hover:text-slate-300">Ambient Ghost</span>
-            </div>
-          </div>
-          <div className="hidden md:block md:col-span-3 text-sm text-slate-500 truncate">Atmospheres Vol 1</div>
-          <div className="hidden md:block md:col-span-2 text-sm text-slate-500 text-right">Nov 12, 2023</div>
-          <div className="col-span-5 md:col-span-1 flex items-center justify-end gap-4">
-            <span className="material-icons text-primary opacity-0 group-hover:opacity-100 text-xl transition-opacity">favorite_border</span>
-            <span className="text-sm text-slate-500">3:22</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-12 items-center px-4 py-3 rounded-lg hover:bg-primary/5 group transition-colors cursor-pointer">
-          <div className="col-span-1 text-center text-slate-500 group-hover:text-primary transition-colors">5</div>
-          <div className="col-span-6 md:col-span-5 flex items-center gap-4">
-            <img alt="Album Art" className="w-10 h-10 rounded" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAd-_LfvHqhDYcsb5uXj8zIUTavJvd6UhQqqadRlyds9E9X2Uhgijbd8JMhoboyUBxiVl0uJtifv1ZTtoleZIRDC81mw4cMNgqbAjHMI7DlhTUqwM2UyzCctpWXDIixPph5WlsM2BrqvsoyvGlgl41L8V5krAuublJi-O43ZrpEgahLh9EX0dyP4brPr8wLF6tuOoP52JOCNPGC3r6QXJXFiOpCNpe129y1wSuLEVSbwMjPk0AHG0zkMqOw8K96n50y3yeuC6s6SyQ" />
-            <div className="flex flex-col overflow-hidden">
-              <span className="font-medium truncate">Liquid Motion</span>
-              <span className="text-sm text-slate-500 truncate group-hover:text-slate-300">Flow State</span>
-            </div>
-          </div>
-          <div className="hidden md:block md:col-span-3 text-sm text-slate-500 truncate">The Kinetic Theory</div>
-          <div className="hidden md:block md:col-span-2 text-sm text-slate-500 text-right">Nov 10, 2023</div>
-          <div className="col-span-5 md:col-span-1 flex items-center justify-end gap-4">
-            <span className="material-icons text-primary opacity-0 group-hover:opacity-100 text-xl transition-opacity">favorite_border</span>
-            <span className="text-sm text-slate-500">4:44</span>
-          </div>
-        </div>
-      </div>
-
-      <section className="mt-16 pb-24">
-        <h2 className="text-2xl font-bold mb-6">Recommended for this playlist</h2>
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between p-3 rounded-lg hover:bg-white/5 transition-colors">
-            <div className="flex items-center gap-4">
-              <img alt="Rec Album" className="w-12 h-12 rounded" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAIfP0-OzVQVE5stCSUnMhyRAVOr6EGZxYX4OAjvyDHs9LIEtLumWYTrxHjyOhgO1rheKrIAWyLZ16Xjx8I_yz9goXrfC4GqOD21ZLUevhM4CDF2LU7lQjdPNH0_DaukkKJFCL1C2Z4rZr7TXUP9Yn0vTIhVEkefbpdmmIoxejHGBdFHy31H-dvCmMVyhpWhx_cIxweEglgPdGRMUf2U7EBg9Q3LiZPugr1KYQChTyklV36vzenXz4gY7RJ6U_kMCsLK4Jx9Ojvs28" />
-              <div>
-                <p className="font-medium">Obsidian Dream</p>
-                <p className="text-sm text-slate-500">Dark Matter</p>
+        <div className="space-y-2">
+          {tracks.map((entry, index) => (
+            <div
+              key={`${entry.spotifyTrackId}-${entry.position}`}
+              className="flex items-center gap-3 rounded-lg p-2 border border-slate-200 dark:border-primary/10"
+            >
+              <button
+                className="w-7 text-sm text-slate-500 font-bold"
+                onClick={() => startPlayback(index)}
+              >
+                {index + 1}
+              </button>
+              <img
+                src={entry.track.album.images?.[0]?.url || 'https://placehold.co/80x80?text=Track'}
+                alt={entry.track.name}
+                className="w-12 h-12 rounded-md object-cover"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm truncate">{entry.track.name}</p>
+                <p className="text-xs text-slate-500 truncate">{entry.track.artists.map((artist) => artist.name).join(', ')}</p>
               </div>
+              <button
+                className="h-8 px-3 rounded-md border border-red-300 text-red-600 text-xs font-semibold"
+                onClick={() => onRemoveSong(entry.spotifyTrackId)}
+              >
+                Remove
+              </button>
             </div>
-            <button className="border border-slate-500 hover:border-slate-100 px-4 py-1.5 rounded-full text-sm font-bold transition-colors">
-              Add
-            </button>
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg hover:bg-white/5 transition-colors">
-            <div className="flex items-center gap-4">
-              <img alt="Rec Album" className="w-12 h-12 rounded" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAbACakrcFpFSHiGXjWr2LovF0dodc8od3GakcYcHmU-jLDhadVDXKL1ARAnZewRmwJ8WJj7aKULI1kooDCRbcNJ699SVqpbjqVpJgEjYoHgVmSiqliRBdV5REPSWNnldJl2ZlJd3cpBpE4WaEZ6YaFvmSoQd57Jm99y54C7Lhg7tybyET5ND2swMiGEA56LhJwuxs4ppZjBAbXXc_mmtCd2JJALukVd7_IS6m_kg_fQflnYBdLoUrFzgl59LCrSqGaAv0E6sI2ijs" />
-              <div>
-                <p className="font-medium">Parallel Reality</p>
-                <p className="text-sm text-slate-500">Shift</p>
-              </div>
-            </div>
-            <button className="border border-slate-500 hover:border-slate-100 px-4 py-1.5 rounded-full text-sm font-bold transition-colors">
-              Add
-            </button>
-          </div>
+          ))}
         </div>
       </section>
+
+      <section className="rounded-xl border border-primary/15 p-4 bg-white dark:bg-background-dark/50 space-y-3">
+        <h2 className="font-bold">Add songs</h2>
+        <div className="flex gap-2">
+          <input
+            className="flex-1 h-11 rounded-lg border border-slate-200 dark:border-primary/20 bg-white dark:bg-background-dark/60 px-3"
+            placeholder="Search songs"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
+          <button className="h-11 px-4 rounded-lg border border-primary text-primary font-bold" onClick={onSearchSongs}>
+            Search
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {searchResults.map((track) => (
+            <div key={track.id} className="flex items-center gap-3 rounded-lg p-2 border border-slate-200 dark:border-primary/10">
+              <img
+                src={track.album.images?.[0]?.url || 'https://placehold.co/80x80?text=Track'}
+                alt={track.name}
+                className="w-12 h-12 rounded-md object-cover"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm truncate">{track.name}</p>
+                <p className="text-xs text-slate-500 truncate">{track.artists.map((artist) => artist.name).join(', ')}</p>
+              </div>
+              <button
+                className="h-8 px-3 rounded-md bg-primary text-background-dark text-xs font-bold disabled:opacity-60"
+                onClick={() => onAddSong(track)}
+                disabled={isAdding || !selectedPlaylistId}
+              >
+                Add
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {error && <p className="text-sm text-red-500">{error}</p>}
     </div>
   );
 }

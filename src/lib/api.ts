@@ -41,6 +41,14 @@ export type ApiPlaylist = {
   created_at: string;
 };
 
+export type ApiPlaylistSong = {
+  id: string;
+  playlist_id: string;
+  spotify_track_id: string;
+  position: number;
+  created_at: string;
+};
+
 type LoginResponse = {
   session?: {
     user?: {
@@ -165,6 +173,31 @@ export async function deleteUserPlaylist(playlistId: string) {
     method: 'DELETE',
     headers: requireUserIdHeader(),
   });
+}
+
+export async function listPlaylistSongs(playlistId: string) {
+  return apiRequest<{ songs: ApiPlaylistSong[] }>(`/api/playlists/${playlistId}/songs`, {
+    headers: requireUserIdHeader(),
+  });
+}
+
+export async function addSongToPlaylist(playlistId: string, payload: { spotifyTrackId: string; position: number }) {
+  return apiRequest<{ song: ApiPlaylistSong }>(`/api/playlists/${playlistId}/songs`, {
+    method: 'POST',
+    headers: requireUserIdHeader(),
+    body: payload,
+  });
+}
+
+export async function removeSongFromPlaylist(playlistId: string, spotifyTrackId: string) {
+  return apiRequest<{ success: boolean }>(`/api/playlists/${playlistId}/songs/${spotifyTrackId}`, {
+    method: 'DELETE',
+    headers: requireUserIdHeader(),
+  });
+}
+
+export async function getSongDetails(spotifyTrackId: string) {
+  return apiRequest<{ track: ApiTrack }>(`/api/songs/${spotifyTrackId}`);
 }
 
 export function extractUserIdFromLoginResponse(response: LoginResponse): string | null {

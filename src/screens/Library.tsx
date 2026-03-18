@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ApiPlaylist, createUserPlaylist, deleteUserPlaylist, listUserPlaylists } from '../lib/api';
 
 export default function Library() {
+  const navigate = useNavigate();
   const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -108,6 +110,12 @@ export default function Library() {
                 <p className="font-bold text-sm truncate">{playlist.name}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{playlist.description || 'No description'}</p>
               </div>
+              <button
+                className="h-8 px-3 rounded-md border border-primary/40 text-primary text-xs font-semibold"
+                onClick={() => navigate(`/playlist?playlistId=${playlist.id}`)}
+              >
+                Open
+              </button>
               <button
                 className="h-8 px-3 rounded-md border border-red-300 text-red-600 text-xs font-semibold"
                 onClick={() => onDeletePlaylist(playlist.id)}
