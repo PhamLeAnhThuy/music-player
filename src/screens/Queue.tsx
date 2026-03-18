@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { removeSongFromPlaylist, reorderPlaylistSongs } from '../lib/api';
 import { getPlayerState, subscribePlayerState, updatePlayerState } from '../lib/playerState';
+import { showToast } from '../lib/toast';
 
 type QueueTab = 'upcoming' | 'history';
 
@@ -77,6 +78,7 @@ export default function Queue() {
     } catch (err) {
       updatePlayerState(() => previousState);
       setError(err instanceof Error ? err.message : 'Failed to remove track from playlist.');
+      showToast({ message: err instanceof Error ? err.message : 'Failed to remove track from playlist.', kind: 'error' });
     } finally {
       setIsSavingOrder(false);
     }
@@ -98,9 +100,11 @@ export default function Queue() {
       if (previousState.playlistId) {
         await syncPlaylistFromQueue(previousState.playlistId, previousState.queue, nextQueue);
       }
+      showToast({ message: 'Cleared upcoming queue.', kind: 'success' });
     } catch (err) {
       updatePlayerState(() => previousState);
       setError(err instanceof Error ? err.message : 'Failed to clear upcoming queue.');
+      showToast({ message: err instanceof Error ? err.message : 'Failed to clear upcoming queue.', kind: 'error' });
     } finally {
       setIsSavingOrder(false);
     }
@@ -138,6 +142,7 @@ export default function Queue() {
       await reorderPlaylistSongs(playerState.playlistId, orders);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save queue order.');
+      showToast({ message: err instanceof Error ? err.message : 'Failed to save queue order.', kind: 'error' });
       throw err;
     } finally {
       setIsSavingOrder(false);
@@ -170,6 +175,7 @@ export default function Queue() {
 
     try {
       await persistOrderIfNeeded(nextQueue);
+      showToast({ message: 'Queue order updated.', kind: 'success', durationMs: 1600 });
     } catch {
       updatePlayerState((state) => ({
         ...state,

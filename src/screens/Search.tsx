@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ApiPlaylist, ApiTrack, addSongToPlaylist, listPlaylistSongs, listUserPlaylists, searchSongs } from '../lib/api';
+import { showToast } from '../lib/toast';
 
 function formatDuration(durationMs: number) {
   const totalSeconds = Math.floor(durationMs / 1000);
@@ -15,7 +16,6 @@ export default function Search() {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [playlistMessage, setPlaylistMessage] = useState('');
   const [addingTrackId, setAddingTrackId] = useState<string | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
   const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
@@ -69,6 +69,7 @@ export default function Search() {
     nextAudio.onended = () => setPlayingTrackId(null);
     nextAudio.play().catch(() => {
       setError('Unable to play preview for this song.');
+      showToast({ message: 'Unable to play preview for this song.', kind: 'error' });
     });
 
     setAudio(nextAudio);
@@ -111,13 +112,12 @@ export default function Search() {
 
   async function onAddSongToPlaylist(song: ApiTrack) {
     if (!selectedPlaylistId) {
-      setPlaylistMessage('Please create a playlist first.');
+      showToast({ message: 'Please create a playlist first.', kind: 'info' });
       return;
     }
 
     try {
       setAddingTrackId(song.id);
-      setPlaylistMessage('');
 
       const response = await listPlaylistSongs(selectedPlaylistId);
       const nextPosition = response.songs.length;
@@ -128,12 +128,12 @@ export default function Search() {
       });
 
       if (addResponse.alreadyExists) {
-        setPlaylistMessage(`"${song.name}" is already in this playlist.`);
+        showToast({ message: `"${song.name}" is already in this playlist.`, kind: 'info' });
       } else {
-        setPlaylistMessage(`Added "${song.name}" to playlist.`);
+        showToast({ message: `Added "${song.name}" to playlist.`, kind: 'success' });
       }
     } catch (err) {
-      setPlaylistMessage(err instanceof Error ? err.message : 'Failed to add song to playlist.');
+      showToast({ message: err instanceof Error ? err.message : 'Failed to add song to playlist.', kind: 'error' });
     } finally {
       setAddingTrackId(null);
     }
@@ -179,7 +179,6 @@ export default function Search() {
             ))}
           </select>
         </div>
-        {playlistMessage && <p className="mt-2 text-xs text-primary">{playlistMessage}</p>}
       </header>
 
       <main className="flex-1 px-4 py-4 space-y-6 mb-32 overflow-y-auto hide-scrollbar">

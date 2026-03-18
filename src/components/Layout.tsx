@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import BottomNav from './BottomNav';
 import MiniPlayer from './MiniPlayer';
+import ToastHost from './ToastHost';
 
 export default function Layout() {
   const location = useLocation();
@@ -18,6 +19,7 @@ export default function Layout() {
           <BottomNav />
         </div>
       )}
+      <ToastHost />
     </div>
   );
 }

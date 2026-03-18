@@ -11,6 +11,7 @@ import {
   searchSongs,
 } from '../lib/api';
 import { PlayerTrack, setPlayerState, updatePlayerState } from '../lib/playerState';
+import { showToast } from '../lib/toast';
 
 type PlaylistTrackView = {
   spotifyTrackId: string;
@@ -150,13 +151,15 @@ export default function Playlist() {
       });
 
       if (addResponse.alreadyExists) {
-        setError('Song is already in this playlist.');
+        showToast({ message: 'Song is already in this playlist.', kind: 'info' });
         return;
       }
 
       await loadPlaylistTracks(selectedPlaylistId);
+      showToast({ message: `Added "${track.name}" to playlist.`, kind: 'success' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add song to playlist.');
+      showToast({ message: err instanceof Error ? err.message : 'Failed to add song to playlist.', kind: 'error' });
     } finally {
       setIsAdding(false);
     }
@@ -171,6 +174,7 @@ export default function Playlist() {
       setError('');
       await removeSongFromPlaylist(selectedPlaylistId, spotifyTrackId);
       await loadPlaylistTracks(selectedPlaylistId);
+      showToast({ message: 'Song removed from playlist.', kind: 'success' });
       updatePlayerState((state) => {
         if (state.playlistId !== selectedPlaylistId) {
           return state;
@@ -187,6 +191,7 @@ export default function Playlist() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove song.');
+      showToast({ message: err instanceof Error ? err.message : 'Failed to remove song.', kind: 'error' });
     }
   }
 
