@@ -182,7 +182,7 @@ export async function listPlaylistSongs(playlistId: string) {
 }
 
 export async function addSongToPlaylist(playlistId: string, payload: { spotifyTrackId: string; position: number }) {
-  return apiRequest<{ song: ApiPlaylistSong }>(`/api/playlists/${playlistId}/songs`, {
+  return apiRequest<{ song: ApiPlaylistSong; alreadyExists?: boolean }>(`/api/playlists/${playlistId}/songs`, {
     method: 'POST',
     headers: requireUserIdHeader(),
     body: payload,

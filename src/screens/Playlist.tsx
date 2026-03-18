@@ -144,10 +144,16 @@ export default function Playlist() {
     try {
       setIsAdding(true);
       setError('');
-      await addSongToPlaylist(selectedPlaylistId, {
+      const addResponse = await addSongToPlaylist(selectedPlaylistId, {
         spotifyTrackId: track.id,
         position: tracks.length,
       });
+
+      if (addResponse.alreadyExists) {
+        setError('Song is already in this playlist.');
+        return;
+      }
+
       await loadPlaylistTracks(selectedPlaylistId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add song to playlist.');

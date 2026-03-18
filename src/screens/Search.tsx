@@ -122,12 +122,16 @@ export default function Search() {
       const response = await listPlaylistSongs(selectedPlaylistId);
       const nextPosition = response.songs.length;
 
-      await addSongToPlaylist(selectedPlaylistId, {
+      const addResponse = await addSongToPlaylist(selectedPlaylistId, {
         spotifyTrackId: song.id,
         position: nextPosition,
       });
 
-      setPlaylistMessage(`Added "${song.name}" to playlist.`);
+      if (addResponse.alreadyExists) {
+        setPlaylistMessage(`"${song.name}" is already in this playlist.`);
+      } else {
+        setPlaylistMessage(`Added "${song.name}" to playlist.`);
+      }
     } catch (err) {
       setPlaylistMessage(err instanceof Error ? err.message : 'Failed to add song to playlist.');
     } finally {
