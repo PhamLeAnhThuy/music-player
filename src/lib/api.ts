@@ -189,6 +189,17 @@ export async function addSongToPlaylist(playlistId: string, payload: { spotifyTr
   });
 }
 
+export async function reorderPlaylistSongs(
+  playlistId: string,
+  orders: Array<{ spotifyTrackId: string; position: number }>,
+) {
+  return apiRequest<{ success: boolean }>(`/api/playlists/${playlistId}/songs`, {
+    method: 'PATCH',
+    headers: requireUserIdHeader(),
+    body: { orders },
+  });
+}
+
 export async function removeSongFromPlaylist(playlistId: string, spotifyTrackId: string) {
   return apiRequest<{ success: boolean }>(`/api/playlists/${playlistId}/songs/${spotifyTrackId}`, {
     method: 'DELETE',

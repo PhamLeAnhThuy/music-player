@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { reorderPlaylistSongs } from '../lib/api';
 import { getPlayerState, subscribePlayerState, updatePlayerState } from '../lib/playerState';
 
 type QueueTab = 'upcoming' | 'history';
@@ -7,6 +8,7 @@ type QueueTab = 'upcoming' | 'history';
 export default function Queue() {
   const [activeTab, setActiveTab] = useState<QueueTab>('upcoming');
   const [playerState, setPlayerState] = useState(getPlayerState());
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
 
   useEffect(() => {
     return subscribePlayerState(() => {
@@ -74,6 +76,58 @@ export default function Queue() {
     });
   }
 
+  async function persistOrderIfNeeded(nextQueue: typeof playerState.queue) {
+    if (!playerState.playlistId) {
+      return;
+    }
+
+    const orders = nextQueue.map((track, index) => ({
+      spotifyTrackId: track.id,
+      position: index,
+    }));
+
+    setIsSavingOrder(true);
+    try {
+      await reorderPlaylistSongs(playerState.playlistId, orders);
+    } finally {
+      setIsSavingOrder(false);
+    }
+  }
+
+  async function moveUpcomingTrack(trackId: string, direction: 'up' | 'down') {
+    const latest = getPlayerState();
+    const currentIndex = latest.currentIndex;
+    const targetIndex = latest.queue.findIndex((track) => track.id === trackId);
+    if (targetIndex < 0) {
+      return;
+    }
+
+    const minMovable = currentIndex + 1;
+    const delta = direction === 'up' ? -1 : 1;
+    const swapIndex = targetIndex + delta;
+    if (swapIndex < minMovable || swapIndex >= latest.queue.length) {
+      return;
+    }
+
+    const nextQueue = [...latest.queue];
+    const [movingTrack] = nextQueue.splice(targetIndex, 1);
+    nextQueue.splice(swapIndex, 0, movingTrack);
+
+    updatePlayerState((state) => ({
+      ...state,
+      queue: nextQueue,
+    }));
+
+    try {
+      await persistOrderIfNeeded(nextQueue);
+    } catch {
+      updatePlayerState((state) => ({
+        ...state,
+        queue: latest.queue,
+      }));
+    }
+  }
+
   const listToRender = activeTab === 'upcoming' ? upcoming : history;
 
   return (
@@ -83,7 +137,7 @@ export default function Queue() {
           <span className="material-symbols-outlined text-primary">chevron_left</span>
         </Link>
         <h1 className="text-lg font-bold">Queue</h1>
-        <button className="text-sm text-primary font-bold" onClick={clearUpcoming}>
+        <button className="text-sm text-primary font-bold disabled:opacity-60" onClick={clearUpcoming} disabled={isSavingOrder}>
           Clear next
         </button>
       </header>
@@ -127,9 +181,25 @@ export default function Queue() {
               <p className="text-xs text-slate-500 truncate">{track.artist}</p>
             </div>
             {activeTab === 'upcoming' && (
-              <button className="text-red-500 text-xs font-semibold" onClick={() => removeFromQueue(track.id)}>
-                Remove
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  className="text-slate-600 dark:text-slate-300 text-xs font-semibold px-2 py-1 border rounded border-slate-300 dark:border-primary/30 disabled:opacity-50"
+                  onClick={() => moveUpcomingTrack(track.id, 'up')}
+                  disabled={isSavingOrder}
+                >
+                  Up
+                </button>
+                <button
+                  className="text-slate-600 dark:text-slate-300 text-xs font-semibold px-2 py-1 border rounded border-slate-300 dark:border-primary/30 disabled:opacity-50"
+                  onClick={() => moveUpcomingTrack(track.id, 'down')}
+                  disabled={isSavingOrder}
+                >
+                  Down
+                </button>
+                <button className="text-red-500 text-xs font-semibold" onClick={() => removeFromQueue(track.id)}>
+                  Remove
+                </button>
+              </div>
             )}
           </div>
         ))}
