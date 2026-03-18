@@ -3,6 +3,34 @@ import { ApiPlaylist, ApiTrack, addSongToPlaylist, listPlaylistSongs, listUserPl
 import { getPlayerState, PlayerTrack, setPlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
 
+const SUGGESTED_HASHTAGS = [
+  '#vpop',
+  '#chillhits',
+  '#focusmode',
+  '#morningboost',
+  '#acoustic',
+  '#kpop',
+  '#lofi',
+  '#workoutmix',
+  '#rnb',
+  '#indie',
+];
+
+const GENRES = [
+  { name: 'Pop', query: 'pop', color: 'from-fuchsia-500 to-rose-500' },
+  { name: 'Hip-Hop', query: 'hip hop', color: 'from-orange-500 to-red-500' },
+  { name: 'Rock', query: 'rock', color: 'from-cyan-500 to-blue-600' },
+  { name: 'R&B', query: 'rnb', color: 'from-indigo-500 to-purple-600' },
+  { name: 'EDM', query: 'edm', color: 'from-emerald-500 to-teal-500' },
+  { name: 'K-Pop', query: 'kpop', color: 'from-pink-500 to-violet-600' },
+  { name: 'Acoustic', query: 'acoustic', color: 'from-amber-500 to-orange-600' },
+  { name: 'Jazz', query: 'jazz', color: 'from-sky-500 to-indigo-600' },
+  { name: 'Lofi', query: 'lofi', color: 'from-lime-500 to-emerald-600' },
+  { name: 'Classical', query: 'classical', color: 'from-slate-600 to-slate-800' },
+  { name: 'Workout', query: 'workout hits', color: 'from-red-500 to-pink-600' },
+  { name: 'Party', query: 'party mix', color: 'from-yellow-500 to-red-500' },
+];
+
 function formatDuration(durationMs: number) {
   const totalSeconds = Math.floor(durationMs / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -31,6 +59,14 @@ export default function Search() {
       previewUrl: track.preview_url,
       durationMs: track.duration_ms,
     };
+  }
+
+  function onTapHashtag(tag: string) {
+    setQuery(tag.replace('#', '').trim());
+  }
+
+  function onTapGenre(queryValue: string) {
+    setQuery(queryValue);
   }
 
   useEffect(() => {
@@ -178,6 +214,7 @@ export default function Search() {
   }
 
   const topResult = useMemo(() => songs[0] || null, [songs]);
+  const isDiscoveryMode = query.trim().length < 2;
 
   return (
     <div className="flex flex-col h-full">
@@ -220,6 +257,43 @@ export default function Search() {
       </header>
 
       <main className="flex-1 px-4 py-4 space-y-6 mb-32 overflow-y-auto hide-scrollbar">
+        {isDiscoveryMode && (
+          <section className="space-y-6">
+            <div>
+              <h2 className="text-lg font-bold mb-3">Suggested Hashtags</h2>
+              <div className="flex flex-wrap gap-2">
+                {SUGGESTED_HASHTAGS.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    className="h-9 px-3 rounded-full border border-primary/30 bg-primary/10 text-primary text-sm font-semibold"
+                    onClick={() => onTapHashtag(tag)}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h2 className="text-lg font-bold mb-3">Browse All Genres</h2>
+              <div className="grid grid-cols-2 gap-3">
+                {GENRES.map((genre) => (
+                  <button
+                    key={genre.name}
+                    type="button"
+                    className={`relative overflow-hidden rounded-xl p-4 h-24 text-left shadow-md bg-gradient-to-br ${genre.color}`}
+                    onClick={() => onTapGenre(genre.query)}
+                  >
+                    <p className="text-white text-sm font-bold tracking-wide">{genre.name}</p>
+                    <div className="absolute -bottom-3 -right-3 size-14 rounded-lg bg-white/20 rotate-12"></div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
         {topResult && (
           <section>
             <h2 className="text-lg font-bold mb-3">Top Result</h2>
@@ -275,9 +349,7 @@ export default function Search() {
           {!isLoading && !error && query.trim().length >= 2 && songs.length === 0 && (
             <p className="text-sm text-slate-500">No songs found.</p>
           )}
-          {!isLoading && !error && query.trim().length < 2 && (
-            <p className="text-sm text-slate-500">Type at least 2 characters to search.</p>
-          )}
+          {!isLoading && !error && query.trim().length < 2 && <p className="text-sm text-slate-500">Pick a hashtag or genre to start searching.</p>}
 
           <div className="space-y-1 mt-2">
             {songs.map((song) => (
