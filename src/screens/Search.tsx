@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ApiTrack, searchSongs } from '../lib/api';
+import { ApiPlaylist, ApiTrack, addSongToPlaylist, listPlaylistSongs, listUserPlaylists, searchSongs } from '../lib/api';
 
 function formatDuration(durationMs: number) {
   const totalSeconds = Math.floor(durationMs / 1000);
@@ -11,10 +11,32 @@ function formatDuration(durationMs: number) {
 export default function Search() {
   const [query, setQuery] = useState('');
   const [songs, setSongs] = useState<ApiTrack[]>([]);
+  const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [playlistMessage, setPlaylistMessage] = useState('');
+  const [addingTrackId, setAddingTrackId] = useState<string | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
   const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    async function loadPlaylists() {
+      try {
+        const response = await listUserPlaylists();
+        const nextPlaylists = response.playlists || [];
+        setPlaylists(nextPlaylists);
+
+        if (nextPlaylists.length > 0) {
+          setSelectedPlaylistId(nextPlaylists[0].id);
+        }
+      } catch {
+        setPlaylists([]);
+      }
+    }
+
+    void loadPlaylists();
+  }, []);
 
   function stopAudio() {
     if (!audio) {
@@ -87,6 +109,32 @@ export default function Search() {
     };
   }, [audio]);
 
+  async function onAddSongToPlaylist(song: ApiTrack) {
+    if (!selectedPlaylistId) {
+      setPlaylistMessage('Please create a playlist first.');
+      return;
+    }
+
+    try {
+      setAddingTrackId(song.id);
+      setPlaylistMessage('');
+
+      const response = await listPlaylistSongs(selectedPlaylistId);
+      const nextPosition = response.songs.length;
+
+      await addSongToPlaylist(selectedPlaylistId, {
+        spotifyTrackId: song.id,
+        position: nextPosition,
+      });
+
+      setPlaylistMessage(`Added "${song.name}" to playlist.`);
+    } catch (err) {
+      setPlaylistMessage(err instanceof Error ? err.message : 'Failed to add song to playlist.');
+    } finally {
+      setAddingTrackId(null);
+    }
+  }
+
   const topResult = useMemo(() => songs[0] || null, [songs]);
 
   return (
@@ -111,6 +159,23 @@ export default function Search() {
         <nav className="flex gap-6 mt-4 overflow-x-auto hide-scrollbar border-b border-slate-200 dark:border-primary/20">
           <a href="#" className="pb-2 text-sm font-bold border-b-2 border-primary text-primary">Songs</a>
         </nav>
+
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-xs text-slate-500 dark:text-primary/60 font-semibold">Add to:</span>
+          <select
+            className="h-9 rounded-md border border-slate-200 dark:border-primary/30 bg-white dark:bg-background-dark/50 px-2 text-sm"
+            value={selectedPlaylistId}
+            onChange={(event) => setSelectedPlaylistId(event.target.value)}
+          >
+            {playlists.length === 0 && <option value="">No playlist</option>}
+            {playlists.map((playlist) => (
+              <option key={playlist.id} value={playlist.id}>
+                {playlist.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {playlistMessage && <p className="mt-2 text-xs text-primary">{playlistMessage}</p>}
       </header>
 
       <main className="flex-1 px-4 py-4 space-y-6 mb-32 overflow-y-auto hide-scrollbar">
@@ -130,6 +195,14 @@ export default function Search() {
               <a href={topResult.external_urls.spotify} target="_blank" rel="noreferrer" className="bg-primary text-background-dark p-2 rounded-full shadow-lg">
                 <span className="material-symbols-outlined fill-1">open_in_new</span>
               </a>
+              <button
+                type="button"
+                className="bg-primary/20 text-primary p-2 rounded-full shadow-lg disabled:opacity-60"
+                onClick={() => onAddSongToPlaylist(topResult)}
+                disabled={!selectedPlaylistId || addingTrackId === topResult.id}
+              >
+                <span className="material-symbols-outlined fill-1">playlist_add</span>
+              </button>
               <button type="button" className="bg-primary text-background-dark p-2 rounded-full shadow-lg" onClick={() => playPreview(topResult)}>
                 <span className="material-symbols-outlined fill-1">{playingTrackId === topResult.id ? 'pause' : 'play_arrow'}</span>
               </button>
@@ -162,6 +235,14 @@ export default function Search() {
                 </div>
                 <button type="button" className="text-slate-500 text-xl" onClick={() => playPreview(song)}>
                   <span className="material-symbols-outlined">{playingTrackId === song.id ? 'pause' : 'play_arrow'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="text-primary text-xl disabled:text-slate-400"
+                  onClick={() => onAddSongToPlaylist(song)}
+                  disabled={!selectedPlaylistId || addingTrackId === song.id}
+                >
+                  <span className="material-symbols-outlined">playlist_add</span>
                 </button>
                 {song.external_urls.spotify && (
                   <a href={song.external_urls.spotify} target="_blank" rel="noreferrer" className="text-slate-500 text-xl">
