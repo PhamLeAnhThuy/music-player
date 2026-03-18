@@ -3,6 +3,8 @@ const USER_ID_STORAGE_KEY = 'music-player-user-id';
 const REQUEST_TIMEOUT_MS = 9000;
 const GET_RETRY_COUNT = 2;
 const GET_RETRY_DELAY_MS = 350;
+const GET_CACHE_TTL_MS = 2 * 60 * 1000;
+const GET_CACHE_STORAGE_KEY = 'music-player-get-cache-v1';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
 
@@ -11,6 +13,15 @@ type RequestOptions = {
   body?: unknown;
   headers?: Record<string, string>;
 };
+
+type CachedGetEntry = {
+  payload: unknown;
+  expiresAt: number;
+};
+
+const inMemoryGetCache = new Map<string, CachedGetEntry>();
+const inFlightGetRequests = new Map<string, Promise<unknown>>();
+let hasHydratedGetCache = false;
 
 export type ApiTrack = {
   id: string;
@@ -65,6 +76,109 @@ type LoginResponse = {
   };
 };
 
+function hydrateGetCache() {
+  if (hasHydratedGetCache) {
+    return;
+  }
+
+  hasHydratedGetCache = true;
+
+  try {
+    const raw = sessionStorage.getItem(GET_CACHE_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, CachedGetEntry>;
+    const now = Date.now();
+
+    for (const [key, entry] of Object.entries(parsed)) {
+      if (!entry || typeof entry.expiresAt !== 'number' || entry.expiresAt <= now) {
+        continue;
+      }
+
+      inMemoryGetCache.set(key, entry);
+    }
+  } catch {
+    // Ignore corrupted cache data and continue with empty cache.
+  }
+}
+
+function persistGetCache() {
+  try {
+    const now = Date.now();
+    const serializable: Record<string, CachedGetEntry> = {};
+
+    for (const [key, entry] of inMemoryGetCache.entries()) {
+      if (entry.expiresAt <= now) {
+        continue;
+      }
+
+      serializable[key] = entry;
+    }
+
+    sessionStorage.setItem(GET_CACHE_STORAGE_KEY, JSON.stringify(serializable));
+  } catch {
+    // Ignore session storage persistence issues.
+  }
+}
+
+function getCacheKey(path: string, method: string, headers: Record<string, string>) {
+  if (method !== 'GET') {
+    return '';
+  }
+
+  const normalizedHeaders = Object.entries(headers)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}:${value}`)
+    .join('|');
+
+  return `${method}:${path}:${normalizedHeaders}`;
+}
+
+function readCachedGetPayload<T>(cacheKey: string): T | null {
+  if (!cacheKey) {
+    return null;
+  }
+
+  hydrateGetCache();
+  const entry = inMemoryGetCache.get(cacheKey);
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    inMemoryGetCache.delete(cacheKey);
+    persistGetCache();
+    return null;
+  }
+
+  return entry.payload as T;
+}
+
+function writeCachedGetPayload(cacheKey: string, payload: unknown) {
+  if (!cacheKey) {
+    return;
+  }
+
+  inMemoryGetCache.set(cacheKey, {
+    payload,
+    expiresAt: Date.now() + GET_CACHE_TTL_MS,
+  });
+  persistGetCache();
+}
+
+function clearGetCache() {
+  inMemoryGetCache.clear();
+  inFlightGetRequests.clear();
+
+  try {
+    sessionStorage.removeItem(GET_CACHE_STORAGE_KEY);
+  } catch {
+    // Ignore session storage failures.
+  }
+}
+
 async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -72,6 +186,20 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
   };
 
   const method = options.method || 'GET';
+  const cacheKey = getCacheKey(path, method, headers);
+
+  if (method === 'GET') {
+    const cachedPayload = readCachedGetPayload<T>(cacheKey);
+    if (cachedPayload !== null) {
+      return cachedPayload;
+    }
+
+    const inFlight = inFlightGetRequests.get(cacheKey);
+    if (inFlight) {
+      return inFlight as Promise<T>;
+    }
+  }
+
   const requestInit: RequestInit = {
     method,
     headers,
@@ -84,61 +212,80 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
 
   const maxAttempts = method === 'GET' ? GET_RETRY_COUNT + 1 : 1;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const abortController = new AbortController();
-    const timeoutId = window.setTimeout(() => {
-      abortController.abort();
-    }, REQUEST_TIMEOUT_MS);
+  const executeRequest = async () => {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const abortController = new AbortController();
+      const timeoutId = window.setTimeout(() => {
+        abortController.abort();
+      }, REQUEST_TIMEOUT_MS);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}${path}`, {
-        ...requestInit,
-        signal: abortController.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      let payload: any = null;
       try {
-        payload = await response.json();
-      } catch {
-        payload = null;
-      }
+        const response = await fetch(`${API_BASE_URL}${path}`, {
+          ...requestInit,
+          signal: abortController.signal,
+        });
 
-      if (!response.ok) {
-        const message = payload?.error || payload?.message || `Request failed (${response.status})`;
-        const canRetryStatus = method === 'GET' && response.status >= 500 && attempt < maxAttempts;
+        clearTimeout(timeoutId);
 
-        if (canRetryStatus) {
+        let payload: any = null;
+        try {
+          payload = await response.json();
+        } catch {
+          payload = null;
+        }
+
+        if (!response.ok) {
+          const message = payload?.error || payload?.message || `Request failed (${response.status})`;
+          const canRetryStatus = method === 'GET' && response.status >= 500 && attempt < maxAttempts;
+
+          if (canRetryStatus) {
+            await new Promise((resolve) => window.setTimeout(resolve, GET_RETRY_DELAY_MS * attempt));
+            continue;
+          }
+
+          throw new Error(message);
+        }
+
+        if (method === 'GET') {
+          writeCachedGetPayload(cacheKey, payload);
+        } else {
+          clearGetCache();
+        }
+
+        return payload as T;
+      } catch (error) {
+        clearTimeout(timeoutId);
+
+        const isAbortError = error instanceof DOMException && error.name === 'AbortError';
+        const isNetworkError = error instanceof TypeError;
+        const canRetryNetwork = method === 'GET' && attempt < maxAttempts && (isAbortError || isNetworkError);
+
+        if (canRetryNetwork) {
           await new Promise((resolve) => window.setTimeout(resolve, GET_RETRY_DELAY_MS * attempt));
           continue;
         }
 
-        throw new Error(message);
+        if (isAbortError) {
+          throw new Error('Request timed out. Please try again.');
+        }
+
+        throw error;
       }
-
-      return payload as T;
-    } catch (error) {
-      clearTimeout(timeoutId);
-
-      const isAbortError = error instanceof DOMException && error.name === 'AbortError';
-      const isNetworkError = error instanceof TypeError;
-      const canRetryNetwork = method === 'GET' && attempt < maxAttempts && (isAbortError || isNetworkError);
-
-      if (canRetryNetwork) {
-        await new Promise((resolve) => window.setTimeout(resolve, GET_RETRY_DELAY_MS * attempt));
-        continue;
-      }
-
-      if (isAbortError) {
-        throw new Error('Request timed out. Please try again.');
-      }
-
-      throw error;
     }
+
+    throw new Error('Request failed after retries.');
+  };
+
+  if (method === 'GET') {
+    const requestPromise = executeRequest().finally(() => {
+      inFlightGetRequests.delete(cacheKey);
+    });
+
+    inFlightGetRequests.set(cacheKey, requestPromise as Promise<unknown>);
+    return requestPromise;
   }
 
-  throw new Error('Request failed after retries.');
+  return executeRequest();
 }
 
 export async function loginUser(email: string, password: string) {
@@ -271,4 +418,5 @@ export function getStoredUserId() {
 
 export function clearStoredUserId() {
   localStorage.removeItem(USER_ID_STORAGE_KEY);
+  clearGetCache();
 }
