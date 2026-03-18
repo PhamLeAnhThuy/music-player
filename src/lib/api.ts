@@ -4,6 +4,7 @@ const REQUEST_TIMEOUT_MS = 9000;
 const GET_RETRY_COUNT = 2;
 const GET_RETRY_DELAY_MS = 350;
 const GET_CACHE_TTL_MS = 2 * 60 * 1000;
+const STALE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const GET_CACHE_STORAGE_KEY = 'music-player-get-cache-v1';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
@@ -90,10 +91,8 @@ function hydrateGetCache() {
     }
 
     const parsed = JSON.parse(raw) as Record<string, CachedGetEntry>;
-    const now = Date.now();
-
     for (const [key, entry] of Object.entries(parsed)) {
-      if (!entry || typeof entry.expiresAt !== 'number' || entry.expiresAt <= now) {
+      if (!entry || typeof entry.expiresAt !== 'number') {
         continue;
       }
 
@@ -110,7 +109,7 @@ function persistGetCache() {
     const serializable: Record<string, CachedGetEntry> = {};
 
     for (const [key, entry] of inMemoryGetCache.entries()) {
-      if (entry.expiresAt <= now) {
+      if (entry.expiresAt <= now - STALE_CACHE_MAX_AGE_MS) {
         continue;
       }
 
@@ -136,7 +135,7 @@ function getCacheKey(path: string, method: string, headers: Record<string, strin
   return `${method}:${path}:${normalizedHeaders}`;
 }
 
-function readCachedGetPayload<T>(cacheKey: string): T | null {
+function readCachedGetPayload<T>(cacheKey: string, allowExpired = false): T | null {
   if (!cacheKey) {
     return null;
   }
@@ -147,7 +146,12 @@ function readCachedGetPayload<T>(cacheKey: string): T | null {
     return null;
   }
 
-  if (entry.expiresAt <= Date.now()) {
+  const now = Date.now();
+  if (entry.expiresAt <= now && !allowExpired) {
+    return null;
+  }
+
+  if (entry.expiresAt <= now - STALE_CACHE_MAX_AGE_MS) {
     inMemoryGetCache.delete(cacheKey);
     persistGetCache();
     return null;
@@ -266,7 +270,21 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
         }
 
         if (isAbortError) {
+          if (method === 'GET') {
+            const stalePayload = readCachedGetPayload<T>(cacheKey, true);
+            if (stalePayload !== null) {
+              return stalePayload;
+            }
+          }
+
           throw new Error('Request timed out. Please try again.');
+        }
+
+        if (method === 'GET') {
+          const stalePayload = readCachedGetPayload<T>(cacheKey, true);
+          if (stalePayload !== null) {
+            return stalePayload;
+          }
         }
 
         throw error;

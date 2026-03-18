@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import BottomNav from './BottomNav';
 import MiniPlayer from './MiniPlayer';
+import OfflineBanner from './OfflineBanner';
 import PlayerEngine from './PlayerEngine';
 import ToastHost from './ToastHost';
 
@@ -20,6 +21,7 @@ export default function Layout() {
           <BottomNav />
         </div>
       )}
+      <OfflineBanner />
       <PlayerEngine />
       <ToastHost />
     </div>
