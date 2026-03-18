@@ -40,6 +40,23 @@ export type ApiTrack = {
   };
 };
 
+export type ApiArtist = {
+  id?: string;
+  name: string;
+  followers?: { total?: number };
+  genres?: string[];
+  popularity?: number;
+  images?: Array<{ url: string }>;
+};
+
+export type ApiAlbumTrack = {
+  id: string;
+  name: string;
+  duration_ms: number;
+  preview_url: string | null;
+  artists?: Array<{ id?: string; name: string }>;
+};
+
 export type ApiProfile = {
   id: string;
   email: string;
@@ -419,7 +436,7 @@ export async function removeSongFromPlaylist(playlistId: string, spotifyTrackId:
 }
 
 export async function getSongDetails(spotifyTrackId: string) {
-  return apiRequest<{ track: ApiTrack }>(`/api/songs/${spotifyTrackId}`);
+  return apiRequest<{ track: ApiTrack; albumTracks?: { items?: ApiAlbumTrack[] }; artist?: ApiArtist | null }>(`/api/songs/${spotifyTrackId}`);
 }
 
 export function extractUserIdFromLoginResponse(response: LoginResponse): string | null {

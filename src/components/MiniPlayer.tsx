@@ -23,6 +23,8 @@ export default function MiniPlayer() {
     return null;
   }
 
+  const shouldMarqueeTitle = currentTrack.name.length > 24;
+
   return (
     <div className="mx-4 mb-2">
       <Link to="/now-playing" className="relative bg-slate-900/90 dark:bg-primary/10 backdrop-blur-md border border-slate-800 dark:border-primary/20 rounded-xl p-2 flex items-center justify-between shadow-2xl block">
@@ -35,7 +37,16 @@ export default function MiniPlayer() {
             />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold truncate text-slate-100 dark:text-slate-100">{currentTrack.name}</p>
+            {shouldMarqueeTitle ? (
+              <div className="marquee-wrap">
+                <div className="marquee-track text-sm font-bold text-slate-100 dark:text-slate-100">
+                  <span>{currentTrack.name}&nbsp;&nbsp;&nbsp;</span>
+                  <span>{currentTrack.name}&nbsp;&nbsp;&nbsp;</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm font-bold truncate text-slate-100 dark:text-slate-100">{currentTrack.name}</p>
+            )}
             <p className="text-xs text-slate-400 dark:text-primary/60 truncate">{currentTrack.artist}</p>
           </div>
         </div>
