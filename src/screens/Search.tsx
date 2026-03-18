@@ -13,6 +13,45 @@ export default function Search() {
   const [songs, setSongs] = useState<ApiTrack[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
+  const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
+
+  function stopAudio() {
+    if (!audio) {
+      return;
+    }
+
+    audio.pause();
+    audio.currentTime = 0;
+    setPlayingTrackId(null);
+  }
+
+  function playPreview(song: ApiTrack) {
+    if (!song.preview_url) {
+      if (song.external_urls.spotify) {
+        window.open(song.external_urls.spotify, '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
+
+    if (playingTrackId === song.id) {
+      stopAudio();
+      return;
+    }
+
+    if (audio) {
+      audio.pause();
+    }
+
+    const nextAudio = new Audio(song.preview_url);
+    nextAudio.onended = () => setPlayingTrackId(null);
+    nextAudio.play().catch(() => {
+      setError('Unable to play preview for this song.');
+    });
+
+    setAudio(nextAudio);
+    setPlayingTrackId(song.id);
+  }
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -39,6 +78,14 @@ export default function Search() {
 
     return () => window.clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    return () => {
+      if (audio) {
+        audio.pause();
+      }
+    };
+  }, [audio]);
 
   const topResult = useMemo(() => songs[0] || null, [songs]);
 
@@ -83,6 +130,9 @@ export default function Search() {
               <a href={topResult.external_urls.spotify} target="_blank" rel="noreferrer" className="bg-primary text-background-dark p-2 rounded-full shadow-lg">
                 <span className="material-symbols-outlined fill-1">open_in_new</span>
               </a>
+              <button type="button" className="bg-primary text-background-dark p-2 rounded-full shadow-lg" onClick={() => playPreview(topResult)}>
+                <span className="material-symbols-outlined fill-1">{playingTrackId === topResult.id ? 'pause' : 'play_arrow'}</span>
+              </button>
             </div>
           </section>
         )}
@@ -100,13 +150,7 @@ export default function Search() {
 
           <div className="space-y-1 mt-2">
             {songs.map((song) => (
-              <a
-                key={song.id}
-                href={song.external_urls.spotify || '#'}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-3 p-2 hover:bg-primary/10 rounded-lg transition-colors group"
-              >
+              <div key={song.id} className="flex items-center gap-3 p-2 hover:bg-primary/10 rounded-lg transition-colors group">
                 <div className="relative w-12 h-12 shrink-0">
                   <img alt={song.album.name} className="w-full h-full rounded object-cover" src={song.album.images[0]?.url || 'https://via.placeholder.com/96'} />
                 </div>
@@ -116,8 +160,15 @@ export default function Search() {
                     {song.artists.map((artist) => artist.name).join(', ')} • {formatDuration(song.duration_ms)}
                   </p>
                 </div>
-                <span className="material-symbols-outlined text-slate-500 text-xl">open_in_new</span>
-              </a>
+                <button type="button" className="text-slate-500 text-xl" onClick={() => playPreview(song)}>
+                  <span className="material-symbols-outlined">{playingTrackId === song.id ? 'pause' : 'play_arrow'}</span>
+                </button>
+                {song.external_urls.spotify && (
+                  <a href={song.external_urls.spotify} target="_blank" rel="noreferrer" className="text-slate-500 text-xl">
+                    <span className="material-symbols-outlined">open_in_new</span>
+                  </a>
+                )}
+              </div>
             ))}
           </div>
         </section>
