@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiTrack, getRecommendations, getStoredUserId, searchSongs } from '../lib/api';
 import { getPlayerState, PlayerTrack, setPlayerState } from '../lib/playerState';
+import { showToast } from '../lib/toast';
 
 function toPlayerTrack(track: ApiTrack): PlayerTrack {
   return {
@@ -18,20 +19,36 @@ export default function Home() {
   const [recommendations, setRecommendations] = useState<ApiTrack[]>([]);
   const [trendingSongs, setTrendingSongs] = useState<ApiTrack[]>([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState<PlayerTrack[]>([]);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [recommendationError, setRecommendationError] = useState('');
   const [trendingError, setTrendingError] = useState('');
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [loadingTrending, setLoadingTrending] = useState(false);
 
+  function notifyOfflineAction() {
+    showToast({
+      message: "You're offline. Reconnect to play songs or open playlists.",
+      kind: 'info',
+      durationMs: 2200,
+    });
+  }
+
   function playFromCollection(songs: ApiTrack[], songId: string, listName: string) {
+    if (!isOnline) {
+      notifyOfflineAction();
+      return;
+    }
+
     if (!songs.length) {
       return;
     }
 
+    const currentState = getPlayerState();
     const nextQueue = songs.map((song) => toPlayerTrack(song));
     const nextIndex = Math.max(0, nextQueue.findIndex((song) => song.id === songId));
 
     setPlayerState({
+      ...currentState,
       playlistId: null,
       playlistName: listName,
       queue: nextQueue,
@@ -42,6 +59,11 @@ export default function Home() {
   }
 
   function playRecentSong(song: PlayerTrack, index: number) {
+    if (!isOnline) {
+      notifyOfflineAction();
+      return;
+    }
+
     const currentState = getPlayerState();
     const existingQueue = currentState.queue.filter((queuedSong) => queuedSong.id !== song.id);
     const nextQueue = [song, ...existingQueue];
@@ -62,6 +84,19 @@ export default function Home() {
       return selected ? [selected, ...updated] : current;
     });
   }
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     const userId = getStoredUserId();
@@ -138,10 +173,27 @@ export default function Home() {
       </header>
 
       <main className="flex-1 overflow-y-auto pb-40 hide-scrollbar">
+        {!isOnline && (
+          <section className="mx-4 mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-400/30 dark:bg-amber-900/30 dark:text-amber-200">
+            <p className="text-xs font-semibold">You are offline. Streaming actions are unavailable.</p>
+          </section>
+        )}
+
         <section className="mt-4">
           <div className="flex items-center justify-between px-4 mb-3">
             <h2 className="text-xl font-bold tracking-tight">Recommended for You</h2>
-            <a href="#" className="text-primary text-sm font-semibold">See all</a>
+            <a
+              href="#"
+              className="text-primary text-sm font-semibold"
+              onClick={(event) => {
+                if (!isOnline) {
+                  event.preventDefault();
+                  notifyOfflineAction();
+                }
+              }}
+            >
+              See all
+            </a>
           </div>
           <div className="flex gap-4 overflow-x-auto px-4 hide-scrollbar">
             {loadingRecommendations && <p className="text-sm text-slate-500">Loading recommendations...</p>}
@@ -174,7 +226,18 @@ export default function Home() {
         <section className="mt-8">
           <div className="flex items-center justify-between px-4 mb-3">
             <h2 className="text-xl font-bold tracking-tight">Trending Songs</h2>
-            <a href="#" className="text-primary text-sm font-semibold">See all</a>
+            <a
+              href="#"
+              className="text-primary text-sm font-semibold"
+              onClick={(event) => {
+                if (!isOnline) {
+                  event.preventDefault();
+                  notifyOfflineAction();
+                }
+              }}
+            >
+              See all
+            </a>
           </div>
           <div className="flex gap-4 overflow-x-auto px-4 hide-scrollbar">
             {loadingTrending && <p className="text-sm text-slate-500">Loading trending songs...</p>}

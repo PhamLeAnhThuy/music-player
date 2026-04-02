@@ -15,6 +15,8 @@ export type PlayerState = {
   queue: PlayerTrack[];
   isPlaying: boolean;
   currentTimeMs: number;
+  isShuffleEnabled: boolean;
+  repeatMode: 'off' | 'context' | 'one';
 };
 
 const PLAYER_STATE_STORAGE_KEY = 'music-player-playback-state';
@@ -27,6 +29,8 @@ export const DEFAULT_PLAYER_STATE: PlayerState = {
   queue: [],
   isPlaying: false,
   currentTimeMs: 0,
+  isShuffleEnabled: false,
+  repeatMode: 'off',
 };
 
 function isValidPlayerState(value: unknown): value is PlayerState {
@@ -35,7 +39,14 @@ function isValidPlayerState(value: unknown): value is PlayerState {
   }
 
   const state = value as Partial<PlayerState>;
-  return Array.isArray(state.queue) && typeof state.currentIndex === 'number';
+  const isRepeatModeValid = state.repeatMode === undefined
+    || state.repeatMode === 'off'
+    || state.repeatMode === 'context'
+    || state.repeatMode === 'one';
+
+  return Array.isArray(state.queue)
+    && typeof state.currentIndex === 'number'
+    && isRepeatModeValid;
 }
 
 export function getPlayerState(): PlayerState {
@@ -52,11 +63,18 @@ export function getPlayerState(): PlayerState {
 
     const boundedIndex = Math.max(0, Math.min(parsedState.currentIndex, parsedState.queue.length - 1));
     const currentTimeMs = typeof parsedState.currentTimeMs === 'number' ? parsedState.currentTimeMs : 0;
+    const isShuffleEnabled = typeof parsedState.isShuffleEnabled === 'boolean' ? parsedState.isShuffleEnabled : false;
+    const repeatMode = parsedState.repeatMode === 'context' || parsedState.repeatMode === 'one'
+      ? parsedState.repeatMode
+      : 'off';
+
     return {
       ...DEFAULT_PLAYER_STATE,
       ...parsedState,
       currentIndex: Number.isFinite(boundedIndex) ? boundedIndex : 0,
       currentTimeMs: Number.isFinite(currentTimeMs) ? Math.max(0, currentTimeMs) : 0,
+      isShuffleEnabled,
+      repeatMode,
     };
   } catch {
     return DEFAULT_PLAYER_STATE;

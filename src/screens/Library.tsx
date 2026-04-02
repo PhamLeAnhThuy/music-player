@@ -226,8 +226,14 @@ export default function Library() {
         <div className="space-y-1">
           {filteredPlaylists.map((playlist) => (
             <div key={playlist.id} className="group flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-200/60 dark:hover:bg-slate-800/50">
-              <div className="flex h-14 w-14 items-center justify-center rounded-md bg-gradient-to-br from-emerald-500/40 to-teal-700/50 text-sm font-black text-emerald-950 dark:text-emerald-100">
-                {getInitials(playlist.name)}
+              <div className="h-14 w-14 overflow-hidden rounded-md bg-gradient-to-br from-emerald-500/40 to-teal-700/50">
+                {playlist.cover_url ? (
+                  <img src={playlist.cover_url} alt={playlist.name} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-sm font-black text-emerald-950 dark:text-emerald-100">
+                    {getInitials(playlist.name)}
+                  </div>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="truncate text-sm font-bold">{playlist.name}</p>

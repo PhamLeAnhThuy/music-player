@@ -409,6 +409,23 @@ export async function deleteUserPlaylist(playlistId: string) {
   });
 }
 
+export async function getUserPlaylist(playlistId: string) {
+  return apiRequest<{ playlist: ApiPlaylist }>(`/api/playlists/${playlistId}`, {
+    headers: requireUserIdHeader(),
+  });
+}
+
+export async function updateUserPlaylist(
+  playlistId: string,
+  payload: { name?: string; description?: string | null; cover_url?: string | null },
+) {
+  return apiRequest<{ playlist: ApiPlaylist }>(`/api/playlists/${playlistId}`, {
+    method: 'PATCH',
+    headers: requireUserIdHeader(),
+    body: payload,
+  });
+}
+
 export async function listPlaylistSongs(playlistId: string) {
   return apiRequest<{ songs: ApiPlaylistSong[] }>(`/api/playlists/${playlistId}/songs`, {
     headers: requireUserIdHeader(),

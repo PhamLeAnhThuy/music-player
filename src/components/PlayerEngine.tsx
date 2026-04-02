@@ -1,6 +1,19 @@
 import { useEffect, useRef } from 'react';
 import { getPlayerState, subscribePlayerState, updatePlayerState } from '../lib/playerState';
 
+function pickShuffledIndex(currentIndex: number, queueLength: number) {
+  if (queueLength <= 1) {
+    return currentIndex;
+  }
+
+  let candidate = currentIndex;
+  while (candidate === currentIndex) {
+    candidate = Math.floor(Math.random() * queueLength);
+  }
+
+  return candidate;
+}
+
 export default function PlayerEngine() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const activeTrackIdRef = useRef<string | null>(null);
@@ -20,10 +33,37 @@ export default function PlayerEngine() {
           };
         }
 
+        if (state.repeatMode === 'one') {
+          return {
+            ...state,
+            currentTimeMs: 0,
+            isPlaying: Boolean(state.queue[state.currentIndex]?.previewUrl),
+          };
+        }
+
+        if (state.isShuffleEnabled) {
+          const nextIndex = pickShuffledIndex(state.currentIndex, state.queue.length);
+          return {
+            ...state,
+            currentIndex: nextIndex,
+            currentTimeMs: 0,
+            isPlaying: Boolean(state.queue[nextIndex]?.previewUrl),
+          };
+        }
+
         const nextIndex = Math.min(state.currentIndex + 1, state.queue.length - 1);
         const hasNextTrack = nextIndex !== state.currentIndex;
 
         if (!hasNextTrack) {
+          if (state.repeatMode === 'context') {
+            return {
+              ...state,
+              currentIndex: 0,
+              currentTimeMs: 0,
+              isPlaying: Boolean(state.queue[0]?.previewUrl),
+            };
+          }
+
           return {
             ...state,
             isPlaying: false,

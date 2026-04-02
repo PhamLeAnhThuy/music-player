@@ -2,11 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiAlbumTrack, ApiArtist, ApiLyrics, getSongDetails } from '../lib/api';
 import { getPlayerState, msToClock, subscribePlayerState, updatePlayerState } from '../lib/playerState';
+import { showToast } from '../lib/toast';
 
 type LyricLine = {
   startMs: number;
   text: string;
 };
+
+const PREVIEW_CLIP_FALLBACK_MS = 30_000;
+const LIKED_TRACKS_STORAGE_KEY = 'music-player-liked-track-ids';
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -154,6 +158,55 @@ function getWordProgressIndex(line: LyricLine, nextLine: LyricLine | undefined, 
   return Math.min(words.length - 1, Math.floor(progress * words.length));
 }
 
+function mapPreviewTimeToLyricTimeline(elapsedMs: number, trackDurationMs: number, hasPreview: boolean) {
+  if (!hasPreview || !Number.isFinite(trackDurationMs) || trackDurationMs <= 0) {
+    return Math.max(0, elapsedMs);
+  }
+
+  const estimatedPreviewDurationMs = Math.min(trackDurationMs, PREVIEW_CLIP_FALLBACK_MS);
+  if (trackDurationMs <= estimatedPreviewDurationMs + 500) {
+    return Math.max(0, elapsedMs);
+  }
+
+  const scaledMs = Math.floor((Math.max(0, elapsedMs) / estimatedPreviewDurationMs) * trackDurationMs);
+  return clamp(scaledMs, 0, trackDurationMs);
+}
+
+function getLikedTrackIds() {
+  try {
+    const raw = localStorage.getItem(LIKED_TRACKS_STORAGE_KEY);
+    if (!raw) {
+      return [] as string[];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [] as string[];
+    }
+
+    return parsed.filter((value): value is string => typeof value === 'string');
+  } catch {
+    return [] as string[];
+  }
+}
+
+function setLikedTrackIds(trackIds: string[]) {
+  localStorage.setItem(LIKED_TRACKS_STORAGE_KEY, JSON.stringify(trackIds));
+}
+
+function pickShuffledIndex(currentIndex: number, queueLength: number) {
+  if (queueLength <= 1) {
+    return currentIndex;
+  }
+
+  let candidate = currentIndex;
+  while (candidate === currentIndex) {
+    candidate = Math.floor(Math.random() * queueLength);
+  }
+
+  return candidate;
+}
+
 export default function NowPlaying() {
   const navigate = useNavigate();
   const [playerState, setPlayerState] = useState(getPlayerState());
@@ -163,6 +216,7 @@ export default function NowPlaying() {
   const [detailError, setDetailError] = useState('');
   const [isLyricsExpanded, setIsLyricsExpanded] = useState(false);
   const [artGradient, setArtGradient] = useState({ primary: '#1b3f2c', secondary: '#0f2017' });
+  const [likedTrackIds, setLikedTrackIdsState] = useState<string[]>(() => getLikedTrackIds());
   const lyricLineRefs = useRef<Array<HTMLParagraphElement | null>>([]);
 
   const currentTrack = useMemo(() => {
@@ -238,7 +292,15 @@ export default function NowPlaying() {
         return state;
       }
 
-      const nextIndex = Math.min(state.currentIndex + 1, state.queue.length - 1);
+      let nextIndex = state.currentIndex;
+      if (state.isShuffleEnabled) {
+        nextIndex = pickShuffledIndex(state.currentIndex, state.queue.length);
+      } else if (state.currentIndex < state.queue.length - 1) {
+        nextIndex = state.currentIndex + 1;
+      } else if (state.repeatMode === 'context') {
+        nextIndex = 0;
+      }
+
       return {
         ...state,
         currentIndex: nextIndex,
@@ -254,7 +316,22 @@ export default function NowPlaying() {
         return state;
       }
 
-      const prevIndex = Math.max(state.currentIndex - 1, 0);
+      if (state.currentTimeMs > 3_000) {
+        return {
+          ...state,
+          currentTimeMs: 0,
+        };
+      }
+
+      let prevIndex = state.currentIndex;
+      if (state.isShuffleEnabled) {
+        prevIndex = pickShuffledIndex(state.currentIndex, state.queue.length);
+      } else if (state.currentIndex > 0) {
+        prevIndex = state.currentIndex - 1;
+      } else if (state.repeatMode === 'context') {
+        prevIndex = state.queue.length - 1;
+      }
+
       return {
         ...state,
         currentIndex: prevIndex,
@@ -275,17 +352,84 @@ export default function NowPlaying() {
     }));
   }
 
+  function toggleShuffle() {
+    updatePlayerState((state) => ({
+      ...state,
+      isShuffleEnabled: !state.isShuffleEnabled,
+    }));
+  }
+
+  function cycleRepeatMode() {
+    updatePlayerState((state) => {
+      const nextMode = state.repeatMode === 'off'
+        ? 'context'
+        : state.repeatMode === 'context'
+          ? 'one'
+          : 'off';
+
+      return {
+        ...state,
+        repeatMode: nextMode,
+      };
+    });
+  }
+
+  function toggleTrackLike(trackId: string) {
+    setLikedTrackIdsState((current) => {
+      const next = current.includes(trackId)
+        ? current.filter((id) => id !== trackId)
+        : [...current, trackId];
+
+      setLikedTrackIds(next);
+      showToast({
+        message: next.includes(trackId) ? 'Saved to your liked songs.' : 'Removed from liked songs.',
+        kind: 'info',
+        durationMs: 1600,
+      });
+      return next;
+    });
+  }
+
+  async function shareCurrentTrack() {
+    if (!currentTrack) {
+      return;
+    }
+
+    const shareText = `${currentTrack.name} - ${currentTrack.artist}`;
+    const shareUrl = `https://open.spotify.com/search/${encodeURIComponent(`${currentTrack.name} ${currentTrack.artist}`)}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: currentTrack.name,
+          text: shareText,
+          url: shareUrl,
+        });
+        return;
+      }
+
+      await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
+      showToast({ message: 'Track link copied to clipboard.', kind: 'success' });
+    } catch {
+      showToast({ message: 'Unable to share this track right now.', kind: 'error' });
+    }
+  }
+
   const elapsedMs = playerState.currentTimeMs || 0;
   const progress = currentTrack?.durationMs ? Math.min(100, (elapsedMs / currentTrack.durationMs) * 100) : 0;
+  const lyricTimelineMs = currentTrack
+    ? mapPreviewTimeToLyricTimeline(elapsedMs, currentTrack.durationMs, Boolean(currentTrack.previewUrl))
+    : elapsedMs;
   const lyricLines = useMemo(() => parseSyncedLyrics(lyrics?.synced), [lyrics?.synced]);
   const plainLyricLines = useMemo(
     () => (lyrics?.plain || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
     [lyrics?.plain],
   );
   const hasLyrics = lyricLines.length > 0 || plainLyricLines.length > 0;
+  const isLiked = currentTrack ? likedTrackIds.includes(currentTrack.id) : false;
   const activeLyricIndex = lyricLines.findIndex((line, index) => {
     const nextStartMs = lyricLines[index + 1]?.startMs ?? Number.MAX_SAFE_INTEGER;
-    return elapsedMs >= line.startMs && elapsedMs < nextStartMs;
+    return lyricTimelineMs >= line.startMs && lyricTimelineMs < nextStartMs;
   });
 
   const previewLineIndices = useMemo(() => {
@@ -381,19 +525,49 @@ export default function NowPlaying() {
         </div>
       </div>
 
-      <div className="relative z-10 mt-8 flex items-center justify-center gap-8">
-        <button className="text-slate-100" onClick={goPrevious}>
+      <div className="relative z-10 mt-7 flex items-center justify-between text-emerald-100/90">
+        <button className="p-2" onClick={() => toggleTrackLike(currentTrack.id)} aria-label="Like song">
+          <span className={`material-symbols-outlined text-2xl ${isLiked ? 'fill-icon text-primary' : ''}`}>favorite</span>
+        </button>
+        <button className="p-2" onClick={shareCurrentTrack} aria-label="Share song">
+          <span className="material-symbols-outlined text-2xl">ios_share</span>
+        </button>
+      </div>
+
+      <div className="relative z-10 mt-2 flex items-center justify-between text-emerald-100/90">
+        <button className="p-2" onClick={toggleShuffle} aria-label="Toggle shuffle">
+          <span className={`material-symbols-outlined text-2xl ${playerState.isShuffleEnabled ? 'text-primary' : ''}`}>shuffle</span>
+        </button>
+        <button className="p-2" onClick={goPrevious} aria-label="Previous">
           <span className="material-symbols-outlined text-4xl fill-icon">skip_previous</span>
         </button>
         <button
           className="flex items-center justify-center rounded-full size-20 bg-primary text-slate-900 shadow-lg shadow-primary/30 disabled:opacity-50"
           onClick={togglePlay}
           disabled={!currentTrack.previewUrl}
+          aria-label={playerState.isPlaying ? 'Pause' : 'Play'}
         >
           <span className="material-symbols-outlined text-5xl fill-icon">{playerState.isPlaying ? 'pause' : 'play_arrow'}</span>
         </button>
-        <button className="text-slate-100" onClick={goNext}>
+        <button className="p-2" onClick={goNext} aria-label="Next">
           <span className="material-symbols-outlined text-4xl fill-icon">skip_next</span>
+        </button>
+        <button className="relative p-2" onClick={cycleRepeatMode} aria-label="Cycle repeat mode">
+          <span className={`material-symbols-outlined text-2xl ${playerState.repeatMode !== 'off' ? 'text-primary' : ''}`}>repeat</span>
+          {playerState.repeatMode === 'one' && (
+            <span className="absolute -bottom-0.5 right-1 text-[10px] font-black text-primary">1</span>
+          )}
+        </button>
+      </div>
+
+      <div className="relative z-10 mt-3 flex items-center justify-between text-xs text-emerald-100/75">
+        <button className="inline-flex items-center gap-1.5" onClick={() => showToast({ message: 'Connect to a device coming soon.', kind: 'info' })}>
+          <span className="material-symbols-outlined text-base">devices</span>
+          Devices
+        </button>
+        <button className="inline-flex items-center gap-1.5" onClick={() => showToast({ message: 'More actions coming soon.', kind: 'info' })}>
+          <span className="material-symbols-outlined text-base">more_horiz</span>
+          More
         </button>
       </div>
 
@@ -425,6 +599,11 @@ export default function NowPlaying() {
           <h3 className="text-sm font-bold uppercase tracking-widest text-primary">Lyrics Preview</h3>
           <span className="text-xs text-emerald-100/80">{hasLyrics ? 'Tap to expand' : 'Not available'}</span>
         </div>
+        {currentTrack.previewUrl && currentTrack.durationMs > PREVIEW_CLIP_FALLBACK_MS && (
+          <p className="text-[11px] text-emerald-100/75">
+            Lyrics are aligned to full-song timing while preview audio is playing.
+          </p>
+        )}
         {!hasLyrics && (
           <p className="text-sm text-emerald-100/80">Lyrics are not available for this song yet.</p>
         )}
@@ -537,9 +716,17 @@ export default function NowPlaying() {
         <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-md">
           <div className="mx-auto flex h-full w-full max-w-md flex-col px-6 pb-8 pt-6">
             <div className="mb-4 flex items-center justify-between">
-              <div>
+              <div className="flex min-w-0 items-center gap-3">
+                <img
+                  src={currentTrack.imageUrl || 'https://placehold.co/200x200?text=Track'}
+                  alt={`${currentTrack.name} cover`}
+                  className="size-12 rounded-lg border border-white/20 object-cover shadow-lg shadow-black/40"
+                />
+                <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-200/80">Lyrics</p>
                 <p className="text-sm font-bold text-white truncate">{currentTrack.name}</p>
+                <p className="text-xs text-emerald-100/75 truncate">{currentTrack.artist}</p>
+                </div>
               </div>
               <button
                 className="rounded-full bg-white/10 p-2 text-white"
@@ -557,7 +744,7 @@ export default function NowPlaying() {
                     const isActive = index === activeLyricIndex;
                     const words = line.text.split(/\s+/).filter(Boolean);
                     const activeWordIndex = isActive
-                      ? getWordProgressIndex(line, lyricLines[index + 1], elapsedMs)
+                      ? getWordProgressIndex(line, lyricLines[index + 1], lyricTimelineMs)
                       : -1;
 
                     return (

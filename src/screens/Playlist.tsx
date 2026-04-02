@@ -8,9 +8,11 @@ import {
   listPlaylistSongs,
   listUserPlaylists,
   removeSongFromPlaylist,
+  reorderPlaylistSongs,
   searchSongs,
+  updateUserPlaylist,
 } from '../lib/api';
-import { PlayerTrack, setPlayerState, updatePlayerState } from '../lib/playerState';
+import { getPlayerState, PlayerTrack, setPlayerState, updatePlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
 
 type PlaylistTrackView = {
@@ -60,11 +62,15 @@ export default function Playlist() {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [isLoading, setIsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [isSavingPlaylist, setIsSavingPlaylist] = useState(false);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ApiTrack[]>([]);
   const [trackSearch, setTrackSearch] = useState('');
   const [trackSortMode, setTrackSortMode] = useState<TrackSortMode>('custom');
+  const [playlistNameDraft, setPlaylistNameDraft] = useState('');
+  const [playlistDescriptionDraft, setPlaylistDescriptionDraft] = useState('');
+  const [playlistCoverDraft, setPlaylistCoverDraft] = useState('');
 
   function notifyOfflineAction() {
     showToast({
@@ -96,6 +102,13 @@ export default function Playlist() {
 
     return [...filtered].sort((a, b) => a.position - b.position);
   }, [tracks, trackSearch, trackSortMode]);
+
+  const totalDurationMs = useMemo(
+    () => visibleTracks.reduce((sum, entry) => sum + entry.track.duration_ms, 0),
+    [visibleTracks],
+  );
+
+  const canReorderTracks = trackSortMode === 'custom' && !trackSearch.trim();
 
   async function loadPlaylists() {
     const response = await listUserPlaylists();
@@ -182,6 +195,19 @@ export default function Playlist() {
 
     void loadPlaylistTracks(selectedPlaylistId);
   }, [selectedPlaylistId]);
+
+  useEffect(() => {
+    if (!selectedPlaylist) {
+      setPlaylistNameDraft('');
+      setPlaylistDescriptionDraft('');
+      setPlaylistCoverDraft('');
+      return;
+    }
+
+    setPlaylistNameDraft(selectedPlaylist.name || '');
+    setPlaylistDescriptionDraft(selectedPlaylist.description || '');
+    setPlaylistCoverDraft(selectedPlaylist.cover_url || '');
+  }, [selectedPlaylist?.id, selectedPlaylist?.name, selectedPlaylist?.description, selectedPlaylist?.cover_url]);
 
   async function onSearchSongs() {
     if (!isOnline) {
@@ -282,7 +308,10 @@ export default function Playlist() {
       return;
     }
 
+    const currentState = getPlayerState();
+
     setPlayerState({
+      ...currentState,
       playlistId: selectedPlaylist.id,
       playlistName: selectedPlaylist.name,
       queue: queueItems.map((entry) => toPlayerTrack(entry.track)),
@@ -291,6 +320,87 @@ export default function Playlist() {
       currentTimeMs: 0,
     });
     navigate('/now-playing');
+  }
+
+  async function onSavePlaylistDetails() {
+    if (!isOnline) {
+      notifyOfflineAction();
+      return;
+    }
+
+    if (!selectedPlaylistId) {
+      setError('Please choose a playlist first.');
+      return;
+    }
+
+    const name = playlistNameDraft.trim();
+    if (!name) {
+      setError('Playlist name cannot be empty.');
+      return;
+    }
+
+    try {
+      setIsSavingPlaylist(true);
+      setError('');
+      const response = await updateUserPlaylist(selectedPlaylistId, {
+        name,
+        description: playlistDescriptionDraft.trim() || null,
+        cover_url: playlistCoverDraft.trim() || null,
+      });
+
+      setPlaylists((current) => current.map((playlist) => (
+        playlist.id === selectedPlaylistId ? response.playlist : playlist
+      )));
+      showToast({ message: 'Playlist details updated.', kind: 'success' });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update playlist details.');
+      showToast({ message: err instanceof Error ? err.message : 'Failed to update playlist details.', kind: 'error' });
+    } finally {
+      setIsSavingPlaylist(false);
+    }
+  }
+
+  async function onMoveTrack(spotifyTrackId: string, direction: 'up' | 'down') {
+    if (!isOnline) {
+      notifyOfflineAction();
+      return;
+    }
+
+    if (!selectedPlaylistId || !canReorderTracks) {
+      return;
+    }
+
+    const sortedTracks = [...tracks].sort((a, b) => a.position - b.position);
+    const currentIndex = sortedTracks.findIndex((entry) => entry.spotifyTrackId === spotifyTrackId);
+    if (currentIndex < 0) {
+      return;
+    }
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= sortedTracks.length) {
+      return;
+    }
+
+    const reordered = [...sortedTracks];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    const normalized = reordered.map((entry, index) => ({ ...entry, position: index }));
+    setTracks(normalized);
+
+    try {
+      await reorderPlaylistSongs(
+        selectedPlaylistId,
+        normalized.map((entry) => ({
+          spotifyTrackId: entry.spotifyTrackId,
+          position: entry.position,
+        })),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reorder songs.');
+      showToast({ message: err instanceof Error ? err.message : 'Failed to reorder songs.', kind: 'error' });
+      await loadPlaylistTracks(selectedPlaylistId);
+    }
   }
 
   function onShufflePlay() {
@@ -303,11 +413,17 @@ export default function Playlist() {
       <header className="overflow-hidden rounded-3xl bg-gradient-to-b from-emerald-700 to-emerald-900 p-5 text-white shadow-2xl shadow-emerald-900/30">
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-100/80">Playlist</p>
         <div className="mt-3 flex items-end gap-4">
-          <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-white/15 text-3xl font-black">PL</div>
+          <div className="h-24 w-24 overflow-hidden rounded-xl bg-white/15">
+            <img
+              src={selectedPlaylist?.cover_url || visibleTracks[0]?.track.album.images?.[0]?.url || 'https://placehold.co/240x240?text=Playlist'}
+              alt={selectedPlaylist?.name || 'Playlist'}
+              className="h-full w-full object-cover"
+            />
+          </div>
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-3xl font-black tracking-tight">{selectedPlaylist?.name || 'Your playlist'}</h1>
             <p className="mt-1 truncate text-sm text-emerald-100/90">
-              {visibleTracks.length} tracks · {selectedPlaylist?.description || 'Made for your mood'}
+              {visibleTracks.length} tracks · {formatDuration(totalDurationMs)} · {selectedPlaylist?.description || 'Made for your mood'}
             </p>
           </div>
         </div>
@@ -337,6 +453,35 @@ export default function Playlist() {
             </option>
           ))}
         </select>
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-primary/15 bg-white p-4 dark:bg-background-dark/50">
+        <h2 className="font-bold">Playlist details</h2>
+        <input
+          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary dark:border-primary/20 dark:bg-background-dark/60"
+          placeholder="Playlist name"
+          value={playlistNameDraft}
+          onChange={(event) => setPlaylistNameDraft(event.target.value)}
+        />
+        <input
+          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary dark:border-primary/20 dark:bg-background-dark/60"
+          placeholder="Description"
+          value={playlistDescriptionDraft}
+          onChange={(event) => setPlaylistDescriptionDraft(event.target.value)}
+        />
+        <input
+          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary dark:border-primary/20 dark:bg-background-dark/60"
+          placeholder="Cover image URL"
+          value={playlistCoverDraft}
+          onChange={(event) => setPlaylistCoverDraft(event.target.value)}
+        />
+        <button
+          className="inline-flex h-10 items-center rounded-full bg-primary px-4 text-sm font-bold text-background-dark disabled:opacity-60"
+          onClick={onSavePlaylistDetails}
+          disabled={isSavingPlaylist || !selectedPlaylistId}
+        >
+          {isSavingPlaylist ? 'Saving...' : 'Save details'}
+        </button>
       </section>
 
       <section className="space-y-3 rounded-2xl border border-primary/15 bg-white p-4 dark:bg-background-dark/50">
@@ -376,6 +521,9 @@ export default function Playlist() {
         <div className="space-y-1">
           {isLoading && <p className="text-sm text-slate-500">Loading songs...</p>}
           {!isLoading && !visibleTracks.length && <p className="text-sm text-slate-500">No songs match your filter.</p>}
+          {!canReorderTracks && visibleTracks.length > 0 && (
+            <p className="text-xs text-slate-500">Turn off title sort and search filter to reorder songs.</p>
+          )}
 
           {visibleTracks.map((entry, index) => (
             <div
@@ -398,6 +546,24 @@ export default function Playlist() {
                 <p className="truncate text-xs text-slate-500">{entry.track.artists.map((artist) => artist.name).join(', ')}</p>
               </button>
               <p className="w-11 text-right text-xs text-slate-500">{formatDuration(entry.track.duration_ms)}</p>
+              <div className="flex items-center">
+                <button
+                  className="h-8 rounded-full px-1 text-slate-500 disabled:opacity-30"
+                  onClick={() => onMoveTrack(entry.spotifyTrackId, 'up')}
+                  disabled={!canReorderTracks || entry.position === 0}
+                  aria-label={`Move ${entry.track.name} up`}
+                >
+                  <span className="material-symbols-outlined text-lg">keyboard_arrow_up</span>
+                </button>
+                <button
+                  className="h-8 rounded-full px-1 text-slate-500 disabled:opacity-30"
+                  onClick={() => onMoveTrack(entry.spotifyTrackId, 'down')}
+                  disabled={!canReorderTracks || entry.position === tracks.length - 1}
+                  aria-label={`Move ${entry.track.name} down`}
+                >
+                  <span className="material-symbols-outlined text-lg">keyboard_arrow_down</span>
+                </button>
+              </div>
               <button
                 className="h-8 rounded-full px-2 text-red-500"
                 onClick={() => onRemoveSong(entry.spotifyTrackId)}

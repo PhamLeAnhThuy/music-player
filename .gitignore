@@ -20,3 +20,7 @@ android/local.properties
 # OS artifacts
 Thumbs.db
 Desktop.ini
+
+# Local-only files (do not push)
+.local/developer-credentials.json
+.github/skills/commit-balance/SKILL.md

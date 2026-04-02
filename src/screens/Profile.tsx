@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiProfile, clearStoredUserId, getUserProfile } from '../lib/api';
+import { getStoredThemeMode, setThemeMode, ThemeMode } from '../lib/theme';
 
 export default function Profile() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<ApiProfile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(() => getStoredThemeMode());
 
   useEffect(() => {
     async function loadProfile() {
@@ -28,6 +30,11 @@ export default function Profile() {
   function onLogout() {
     clearStoredUserId();
     navigate('/');
+  }
+
+  function onChangeThemeMode(mode: ThemeMode) {
+    setThemeMode(mode);
+    setThemeModeState(mode);
   }
 
   return (
@@ -71,6 +78,29 @@ export default function Profile() {
 
         <section className="px-4 space-y-2">
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 px-2 py-2">Account Settings</h3>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Theme</p>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              <button
+                className={`h-9 rounded-md text-xs font-bold ${themeMode === 'system' ? 'bg-primary text-background-dark' : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}
+                onClick={() => onChangeThemeMode('system')}
+              >
+                System
+              </button>
+              <button
+                className={`h-9 rounded-md text-xs font-bold ${themeMode === 'light' ? 'bg-primary text-background-dark' : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}
+                onClick={() => onChangeThemeMode('light')}
+              >
+                Light
+              </button>
+              <button
+                className={`h-9 rounded-md text-xs font-bold ${themeMode === 'dark' ? 'bg-primary text-background-dark' : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}
+                onClick={() => onChangeThemeMode('dark')}
+              >
+                Dark
+              </button>
+            </div>
+          </div>
           <div className="space-y-1">
             <button className="w-full flex items-center justify-between p-4 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-xl transition-colors group">
               <div className="flex items-center gap-4">

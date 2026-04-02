@@ -11,11 +11,14 @@
     "lint": "tsc --noEmit",
     "android:build": "npm run build && npx cap sync android",
     "android:open": "npx cap open android",
-    "android:run": "npm run android:vm",
+    "android:run": "npm run android:build && npm run android:open",
     "android:install": "cd android && gradlew.bat installDebug",
     "android:launch": "adb shell monkey -p com.example.musicplayer -c android.intent.category.LAUNCHER 1",
     "android:vm": "npm run android:build && npm run android:install && npm run android:launch",
-    "android:dev": "npx cap run android -l --external"
+    "native:install": "npm --prefix native install",
+    "native:start": "npm --prefix native run start",
+    "native:start:reset": "npm --prefix native exec react-native start --reset-cache",
+    "native:android": "npm --prefix native run android"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",

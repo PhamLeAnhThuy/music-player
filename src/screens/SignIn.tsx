@@ -100,22 +100,6 @@ export default function SignIn() {
           )}
         </form>
 
-        <div className="flex flex-col gap-4 w-full">
-          <div className="relative flex items-center py-4">
-            <div className="flex-grow border-t border-slate-200 dark:border-primary/10"></div>
-            <span className="flex-shrink mx-4 text-slate-400 text-xs font-bold uppercase tracking-widest">Or continue with</span>
-            <div className="flex-grow border-t border-slate-200 dark:border-primary/10"></div>
-          </div>
-          <div className="flex gap-4">
-            <button className="flex-1 flex items-center justify-center h-12 rounded-xl border border-slate-200 dark:border-primary/20 bg-white dark:bg-primary/5 hover:bg-slate-50 dark:hover:bg-primary/10 transition-colors">
-              <img alt="Google" className="w-5 h-5" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBxGVf9lgcur4H4XByxGhqSlt33qKqhLOQ_W2EBQRBIhxdDBjpS-P8pExH6RaMmgJ_SwH-VY7ExOtxiUDB0lLSxgmYFKmluTkdB5IIkYYRU-2P8GHWOpIUbk-QavAVIbnOaZZtVhlNqd6j_tVqaL6fQyG4CI-2lJy5vrBy7kfelMaYdOy1UrM84v1WsSaW_s9igWCbXaS08qWYp_Re9yF9ZGM2MDtYuP7TriqXhGF80VcCkZAxgnK5Howi_ohIPaicOBASUWts9KSI" />
-            </button>
-            <button className="flex-1 flex items-center justify-center h-12 rounded-xl border border-slate-200 dark:border-primary/20 bg-white dark:bg-primary/5 hover:bg-slate-50 dark:hover:bg-primary/10 transition-colors">
-              <img alt="Apple" className="w-5 h-5 dark:invert" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC99qAhYXaidsUBfaUqAGaSyd_9V2Qw6r7kJZ3jgxkrZdZV84Hl3BcLutdFv2c_pDg0lDZH-55ay_CRAn2meioGrL8HQL89p2G4zkm9K_uqFByOV2HKmNWe7KJR67jdnT5092EZq3MBQfkBnQADUKAdWzauSmLE-bQ6hk_ntdWnzHhepdtRxULt1IxPXEcVpqTAMI_Bwf1huKLw7pXPcNYYp_mTAfgD6qr5sdY4AjmeAnTYcZAAwbHbhW19OOn7kWKD172J2p5WJSU" />
-            </button>
-          </div>
-        </div>
-
         <div className="text-center pt-4">
           <p className="text-slate-600 dark:text-slate-400 text-base">
             New to the platform? 
