@@ -20,6 +20,9 @@ export default function Library() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [playlistToDelete, setPlaylistToDelete] = useState<ApiPlaylist | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [error, setError] = useState('');
@@ -93,6 +96,20 @@ export default function Library() {
     setIsCreateModalOpen(false);
   }
 
+  function openDeleteModal(playlist: ApiPlaylist) {
+    setPlaylistToDelete(playlist);
+    setIsDeleteModalOpen(true);
+  }
+
+  function closeDeleteModal() {
+    if (isDeleting) {
+      return;
+    }
+
+    setIsDeleteModalOpen(false);
+    setPlaylistToDelete(null);
+  }
+
   async function onCreatePlaylist() {
     if (!isOnline) {
       notifyOfflineAction();
@@ -126,20 +143,29 @@ export default function Library() {
     }
   }
 
-  async function onDeletePlaylist(playlistId: string) {
+  async function onDeletePlaylist() {
     if (!isOnline) {
       notifyOfflineAction();
       return;
     }
 
+    if (!playlistToDelete) {
+      return;
+    }
+
     try {
+      setIsDeleting(true);
       setError('');
-      await deleteUserPlaylist(playlistId);
-      setPlaylists((current) => current.filter((playlist) => playlist.id !== playlistId));
+      await deleteUserPlaylist(playlistToDelete.id);
+      setPlaylists((current) => current.filter((playlist) => playlist.id !== playlistToDelete.id));
       showToast({ message: 'Playlist removed.', kind: 'success' });
+      setIsDeleteModalOpen(false);
+      setPlaylistToDelete(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete playlist.');
       showToast({ message: err instanceof Error ? err.message : 'Failed to delete playlist.', kind: 'error' });
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -213,7 +239,7 @@ export default function Library() {
               </button>
               <button
                 className="h-8 rounded-full px-2 text-red-500"
-                onClick={() => onDeletePlaylist(playlist.id)}
+                onClick={() => openDeleteModal(playlist)}
                 aria-label={`Delete ${playlist.name}`}
               >
                 <span className="material-symbols-outlined text-lg">delete</span>
@@ -265,6 +291,34 @@ export default function Library() {
                 disabled={isCreating}
               >
                 {isCreating ? 'Creating...' : 'Confirm Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isDeleteModalOpen && playlistToDelete && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl dark:bg-slate-900">
+            <h2 className="text-lg font-bold">Delete Playlist</h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              Are you sure you want to delete "{playlistToDelete.name}"?
+            </p>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="h-10 rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                onClick={closeDeleteModal}
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                className="h-10 rounded-md bg-red-500 px-3 text-sm font-semibold text-white disabled:opacity-60"
+                onClick={onDeletePlaylist}
+                disabled={isDeleting}
+              >
+                {isDeleting ? 'Deleting...' : 'Confirm Delete'}
               </button>
             </div>
           </div>
