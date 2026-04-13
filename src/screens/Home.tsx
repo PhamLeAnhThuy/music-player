@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ApiTrack, getRecommendations, getStoredUserId, searchSongs } from '../lib/api';
 import { getPlayerState, PlayerTrack, setPlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
@@ -16,6 +17,7 @@ function toPlayerTrack(track: ApiTrack): PlayerTrack {
 }
 
 export default function Home() {
+  const navigate = useNavigate();
   const [recommendations, setRecommendations] = useState<ApiTrack[]>([]);
   const [trendingSongs, setTrendingSongs] = useState<ApiTrack[]>([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState<PlayerTrack[]>([]);
@@ -163,7 +165,11 @@ export default function Home() {
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-primary/10 transition-colors">
+          <button
+            type="button"
+            className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-primary/10 transition-colors"
+            onClick={() => navigate('/profile')}
+          >
             <span className="material-symbols-outlined text-2xl">settings</span>
           </button>
         </div>
@@ -179,18 +185,21 @@ export default function Home() {
         <section className="mt-4">
           <div className="flex items-center justify-between px-4 mb-3">
             <h2 className="text-xl font-bold tracking-tight">Recommended for You</h2>
-            <a
-              href="#"
+            <button
+              type="button"
               className="text-primary text-sm font-semibold"
-              onClick={(event) => {
-                if (!isOnline) {
-                  event.preventDefault();
-                  notifyOfflineAction();
-                }
-              }}
+              onClick={() =>
+                navigate('/song-list', {
+                  state: {
+                    title: 'Recommended for You',
+                    songs: recommendations,
+                    listName: 'Recommended for You',
+                  },
+                })
+              }
             >
               See all
-            </a>
+            </button>
           </div>
           <div className="flex gap-4 overflow-x-auto px-4 hide-scrollbar">
             {loadingRecommendations && <p className="text-sm text-slate-500">Loading recommendations...</p>}
@@ -223,18 +232,21 @@ export default function Home() {
         <section className="mt-8">
           <div className="flex items-center justify-between px-4 mb-3">
             <h2 className="text-xl font-bold tracking-tight">Trending Songs</h2>
-            <a
-              href="#"
+            <button
+              type="button"
               className="text-primary text-sm font-semibold"
-              onClick={(event) => {
-                if (!isOnline) {
-                  event.preventDefault();
-                  notifyOfflineAction();
-                }
-              }}
+              onClick={() =>
+                navigate('/song-list', {
+                  state: {
+                    title: 'Trending Songs',
+                    songs: trendingSongs,
+                    listName: 'Trending Songs',
+                  },
+                })
+              }
             >
               See all
-            </a>
+            </button>
           </div>
           <div className="flex gap-4 overflow-x-auto px-4 hide-scrollbar">
             {loadingTrending && <p className="text-sm text-slate-500">Loading trending songs...</p>}
