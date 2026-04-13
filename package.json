@@ -15,6 +15,7 @@
     "android:install": "cd android && gradlew.bat installDebug",
     "android:launch": "adb shell monkey -p com.example.musicplayer -c android.intent.category.LAUNCHER 1",
     "android:vm": "npm run android:build && npm run android:install && npm run android:launch",
+    "android:dev": "npx cap run android -l --host=localhost --port=3000 --forwardPorts 3000:3000",
     "native:install": "npm --prefix native install",
     "native:start": "npm --prefix native run start",
     "native:start:reset": "npm --prefix native exec react-native start --reset-cache",

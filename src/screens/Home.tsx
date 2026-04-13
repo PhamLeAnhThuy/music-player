@@ -164,9 +164,6 @@ export default function Home() {
         </div>
         <div className="flex gap-2">
           <button className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-primary/10 transition-colors">
-            <span className="material-symbols-outlined text-2xl">notifications</span>
-          </button>
-          <button className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-primary/10 transition-colors">
             <span className="material-symbols-outlined text-2xl">settings</span>
           </button>
         </div>
