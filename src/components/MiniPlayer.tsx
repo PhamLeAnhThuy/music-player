@@ -50,10 +50,7 @@ export default function MiniPlayer() {
             <p className="text-xs text-slate-400 dark:text-primary/60 truncate">{currentTrack.artist}</p>
           </div>
         </div>
-        <div className="flex items-center gap-4 px-2">
-          <button className="text-slate-100" onClick={(e) => e.preventDefault()}>
-            <span className="material-symbols-outlined text-2xl">devices</span>
-          </button>
+        <div className="flex items-center px-2">
           <button
             className="size-10 flex items-center justify-center rounded-full bg-primary text-background-dark"
             onClick={(e) => {
