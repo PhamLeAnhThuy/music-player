@@ -10,7 +10,6 @@ import {
   removeSongFromPlaylist,
   reorderPlaylistSongs,
   searchSongs,
-  updateUserPlaylist,
 } from '../lib/api';
 import { getPlayerState, PlayerTrack, setPlayerState, updatePlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
@@ -54,7 +53,7 @@ function shuffleTracks(items: PlaylistTrackView[]) {
 
 export default function Playlist() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
   const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
@@ -62,15 +61,11 @@ export default function Playlist() {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [isLoading, setIsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
-  const [isSavingPlaylist, setIsSavingPlaylist] = useState(false);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ApiTrack[]>([]);
   const [trackSearch, setTrackSearch] = useState('');
   const [trackSortMode, setTrackSortMode] = useState<TrackSortMode>('custom');
-  const [playlistNameDraft, setPlaylistNameDraft] = useState('');
-  const [playlistDescriptionDraft, setPlaylistDescriptionDraft] = useState('');
-  const [playlistCoverDraft, setPlaylistCoverDraft] = useState('');
 
   function notifyOfflineAction() {
     showToast({
@@ -196,19 +191,6 @@ export default function Playlist() {
     void loadPlaylistTracks(selectedPlaylistId);
   }, [selectedPlaylistId]);
 
-  useEffect(() => {
-    if (!selectedPlaylist) {
-      setPlaylistNameDraft('');
-      setPlaylistDescriptionDraft('');
-      setPlaylistCoverDraft('');
-      return;
-    }
-
-    setPlaylistNameDraft(selectedPlaylist.name || '');
-    setPlaylistDescriptionDraft(selectedPlaylist.description || '');
-    setPlaylistCoverDraft(selectedPlaylist.cover_url || '');
-  }, [selectedPlaylist?.id, selectedPlaylist?.name, selectedPlaylist?.description, selectedPlaylist?.cover_url]);
-
   async function onSearchSongs() {
     if (!isOnline) {
       notifyOfflineAction();
@@ -322,44 +304,6 @@ export default function Playlist() {
     navigate('/now-playing');
   }
 
-  async function onSavePlaylistDetails() {
-    if (!isOnline) {
-      notifyOfflineAction();
-      return;
-    }
-
-    if (!selectedPlaylistId) {
-      setError('Please choose a playlist first.');
-      return;
-    }
-
-    const name = playlistNameDraft.trim();
-    if (!name) {
-      setError('Playlist name cannot be empty.');
-      return;
-    }
-
-    try {
-      setIsSavingPlaylist(true);
-      setError('');
-      const response = await updateUserPlaylist(selectedPlaylistId, {
-        name,
-        description: playlistDescriptionDraft.trim() || null,
-        cover_url: playlistCoverDraft.trim() || null,
-      });
-
-      setPlaylists((current) => current.map((playlist) => (
-        playlist.id === selectedPlaylistId ? response.playlist : playlist
-      )));
-      showToast({ message: 'Playlist details updated.', kind: 'success' });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update playlist details.');
-      showToast({ message: err instanceof Error ? err.message : 'Failed to update playlist details.', kind: 'error' });
-    } finally {
-      setIsSavingPlaylist(false);
-    }
-  }
-
   async function onMoveTrack(spotifyTrackId: string, direction: 'up' | 'down') {
     if (!isOnline) {
       notifyOfflineAction();
@@ -436,52 +380,9 @@ export default function Playlist() {
       )}
 
       <section className="space-y-3 rounded-2xl border border-primary/15 bg-white p-4 dark:bg-background-dark/50">
-        <label className="text-xs uppercase tracking-widest text-slate-500 font-bold">Choose playlist</label>
-        <select
-          className="w-full h-11 rounded-lg border border-slate-200 dark:border-primary/20 bg-white dark:bg-background-dark/60 px-3"
-          value={selectedPlaylistId}
-          onChange={(event) => {
-            const nextId = event.target.value;
-            setSelectedPlaylistId(nextId);
-            setSearchParams(nextId ? { playlistId: nextId } : {});
-          }}
-        >
-          {playlists.length === 0 && <option value="">No playlists found</option>}
-          {playlists.map((playlist) => (
-            <option key={playlist.id} value={playlist.id}>
-              {playlist.name}
-            </option>
-          ))}
-        </select>
-      </section>
-
-      <section className="space-y-3 rounded-2xl border border-primary/15 bg-white p-4 dark:bg-background-dark/50">
         <h2 className="font-bold">Playlist details</h2>
-        <input
-          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary dark:border-primary/20 dark:bg-background-dark/60"
-          placeholder="Playlist name"
-          value={playlistNameDraft}
-          onChange={(event) => setPlaylistNameDraft(event.target.value)}
-        />
-        <input
-          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary dark:border-primary/20 dark:bg-background-dark/60"
-          placeholder="Description"
-          value={playlistDescriptionDraft}
-          onChange={(event) => setPlaylistDescriptionDraft(event.target.value)}
-        />
-        <input
-          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary dark:border-primary/20 dark:bg-background-dark/60"
-          placeholder="Cover image URL"
-          value={playlistCoverDraft}
-          onChange={(event) => setPlaylistCoverDraft(event.target.value)}
-        />
-        <button
-          className="inline-flex h-10 items-center rounded-full bg-primary px-4 text-sm font-bold text-background-dark disabled:opacity-60"
-          onClick={onSavePlaylistDetails}
-          disabled={isSavingPlaylist || !selectedPlaylistId}
-        >
-          {isSavingPlaylist ? 'Saving...' : 'Save details'}
-        </button>
+        <p className="text-sm font-semibold">{selectedPlaylist?.name || 'Your playlist'}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{selectedPlaylist?.description || 'No description.'}</p>
       </section>
 
       <section className="space-y-3 rounded-2xl border border-primary/15 bg-white p-4 dark:bg-background-dark/50">

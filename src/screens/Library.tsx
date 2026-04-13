@@ -3,9 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { ApiPlaylist, createUserPlaylist, deleteUserPlaylist, listUserPlaylists } from '../lib/api';
 import { showToast } from '../lib/toast';
 
-type SortMode = 'recent' | 'alphabetical';
-const DEFAULT_PLAYLIST_NAME = 'My Playlist';
-
 function getInitials(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -22,9 +19,11 @@ export default function Library() {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftDescription, setDraftDescription] = useState('');
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortMode, setSortMode] = useState<SortMode>('recent');
 
   function notifyOfflineAction() {
     showToast({
@@ -47,14 +46,8 @@ export default function Library() {
       );
     });
 
-    return [...visible].sort((a, b) => {
-      if (sortMode === 'alphabetical') {
-        return a.name.localeCompare(b.name);
-      }
-
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-  }, [playlists, searchTerm, sortMode]);
+    return [...visible].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [playlists, searchTerm]);
 
   async function loadPlaylists() {
     try {
@@ -86,13 +79,28 @@ export default function Library() {
     void loadPlaylists();
   }, []);
 
+  function openCreateModal() {
+    setDraftName('');
+    setDraftDescription('');
+    setIsCreateModalOpen(true);
+  }
+
+  function closeCreateModal() {
+    if (isCreating) {
+      return;
+    }
+
+    setIsCreateModalOpen(false);
+  }
+
   async function onCreatePlaylist() {
     if (!isOnline) {
       notifyOfflineAction();
       return;
     }
 
-    const name = DEFAULT_PLAYLIST_NAME;
+    const name = draftName.trim();
+    const description = draftDescription.trim();
     if (!name) {
       setError('Please enter a playlist name.');
       return;
@@ -101,9 +109,15 @@ export default function Library() {
     try {
       setIsCreating(true);
       setError('');
-      const response = await createUserPlaylist({ name });
+      const response = await createUserPlaylist({
+        name,
+        description: description || undefined,
+      });
       setPlaylists((current) => [response.playlist, ...current]);
       showToast({ message: `Created "${response.playlist.name}".`, kind: 'success' });
+      setIsCreateModalOpen(false);
+      setDraftName('');
+      setDraftDescription('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create playlist.');
       showToast({ message: err instanceof Error ? err.message : 'Failed to create playlist.', kind: 'error' });
@@ -134,23 +148,6 @@ export default function Library() {
       <header className="sticky top-0 z-20 bg-background-light/95 px-4 pb-4 pt-6 backdrop-blur-sm dark:bg-background-dark/95">
         <div className="mb-4 flex items-center justify-between">
           <h1 className="text-3xl font-black tracking-tight">Your Library</h1>
-          <button
-            className="inline-flex h-10 items-center justify-center rounded-full bg-primary px-4 text-sm font-bold text-background-dark disabled:opacity-60"
-            onClick={onCreatePlaylist}
-            disabled={isCreating}
-          >
-            {isCreating ? 'Creating...' : '+ New'}
-          </button>
-        </div>
-
-        <div className="mb-3 flex items-center">
-          <button
-            type="button"
-            className="ml-auto inline-flex h-8 items-center rounded-full bg-slate-200 px-3 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
-            onClick={() => setSortMode((current) => (current === 'recent' ? 'alphabetical' : 'recent'))}
-          >
-            {sortMode === 'recent' ? 'Recents' : 'A-Z'}
-          </button>
         </div>
 
         <div className="flex gap-2">
@@ -160,8 +157,11 @@ export default function Library() {
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
           />
-          <button className="h-10 rounded-md border border-primary/40 px-3 text-xs font-bold text-primary" onClick={loadPlaylists}>
-            Refresh
+          <button
+            className="h-10 rounded-md bg-primary px-3 text-xs font-bold text-background-dark"
+            onClick={openCreateModal}
+          >
+            Create
           </button>
         </div>
       </header>
@@ -222,6 +222,54 @@ export default function Library() {
           ))}
         </div>
       </main>
+
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl dark:bg-slate-900">
+            <h2 className="text-lg font-bold">Create Playlist</h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Fill in playlist details and confirm.</p>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</label>
+                <input
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary dark:border-primary/20 dark:bg-background-dark/60"
+                  placeholder="My Playlist"
+                  value={draftName}
+                  onChange={(event) => setDraftName(event.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Description</label>
+                <textarea
+                  className="min-h-20 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary dark:border-primary/20 dark:bg-background-dark/60"
+                  placeholder="Optional description"
+                  value={draftDescription}
+                  onChange={(event) => setDraftDescription(event.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="h-10 rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                onClick={closeCreateModal}
+                disabled={isCreating}
+              >
+                Cancel
+              </button>
+              <button
+                className="h-10 rounded-md bg-primary px-3 text-sm font-semibold text-background-dark disabled:opacity-60"
+                onClick={onCreatePlaylist}
+                disabled={isCreating}
+              >
+                {isCreating ? 'Creating...' : 'Confirm Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
