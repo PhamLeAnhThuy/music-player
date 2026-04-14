@@ -70,6 +70,11 @@ export type ApiProfile = {
   avatar_url: string | null;
 };
 
+export type ApiListeningStats = {
+  totalListeningSeconds: number;
+  topGenres: string[];
+};
+
 export type ApiPlaylist = {
   id: string;
   user_id: string;
@@ -385,6 +390,12 @@ export async function updateUserProfile(payload: { name?: string; avatar_url?: s
     method: 'PATCH',
     headers: requireUserIdHeader(),
     body: payload,
+  });
+}
+
+export async function getUserListeningStats() {
+  return apiRequest<{ stats: ApiListeningStats }>('/api/user/profile/stats', {
+    headers: requireUserIdHeader(),
   });
 }
 

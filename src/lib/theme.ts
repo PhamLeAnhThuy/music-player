@@ -12,7 +12,7 @@ export function getStoredThemeMode(): ThemeMode {
     return rawValue;
   }
 
-  return 'system';
+  return 'dark';
 }
 
 function applyThemeClass(mode: ThemeMode) {

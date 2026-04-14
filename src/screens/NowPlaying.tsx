@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ApiAlbumTrack, ApiArtist, ApiLyrics, getSongDetails } from '../lib/api';
+import { ApiArtist, ApiLyrics, getSongDetails } from '../lib/api';
 import { getPlayerState, msToClock, subscribePlayerState, updatePlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
 
@@ -211,9 +211,7 @@ export default function NowPlaying() {
   const navigate = useNavigate();
   const [playerState, setPlayerState] = useState(getPlayerState());
   const [artistInfo, setArtistInfo] = useState<ApiArtist | null>(null);
-  const [relatedTracks, setRelatedTracks] = useState<ApiAlbumTrack[]>([]);
   const [lyrics, setLyrics] = useState<ApiLyrics | null>(null);
-  const [detailError, setDetailError] = useState('');
   const [isLyricsExpanded, setIsLyricsExpanded] = useState(false);
   const [artGradient, setArtGradient] = useState({ primary: '#1b3f2c', secondary: '#0f2017' });
   const [likedTrackIds, setLikedTrackIdsState] = useState<string[]>(() => getLikedTrackIds());
@@ -236,28 +234,19 @@ export default function NowPlaying() {
   useEffect(() => {
     if (!currentTrack) {
       setArtistInfo(null);
-      setRelatedTracks([]);
       setLyrics(null);
-      setDetailError('');
       return;
     }
 
     async function loadSongDetails() {
       try {
-        setDetailError('');
         const details = await getSongDetails(currentTrack.id);
         setArtistInfo(details.artist || null);
         setLyrics(details.lyrics || null);
-
-        const tracks = (details.albumTracks?.items || [])
-          .filter((track) => track.id !== currentTrack.id)
-          .slice(0, 6);
-        setRelatedTracks(tracks);
       } catch (error) {
+        void error;
         setArtistInfo(null);
-        setRelatedTracks([]);
         setLyrics(null);
-        setDetailError(error instanceof Error ? error.message : 'Unable to load track details.');
       }
     }
 
@@ -375,18 +364,17 @@ export default function NowPlaying() {
   }
 
   function toggleTrackLike(trackId: string) {
-    setLikedTrackIdsState((current) => {
-      const next = current.includes(trackId)
-        ? current.filter((id) => id !== trackId)
-        : [...current, trackId];
+    const wasLiked = likedTrackIds.includes(trackId);
+    const next = wasLiked
+      ? likedTrackIds.filter((id) => id !== trackId)
+      : [...likedTrackIds, trackId];
 
-      setLikedTrackIds(next);
-      showToast({
-        message: next.includes(trackId) ? 'Saved to your liked songs.' : 'Removed from liked songs.',
-        kind: 'info',
-        durationMs: 1600,
-      });
-      return next;
+    setLikedTrackIdsState(next);
+    setLikedTrackIds(next);
+    showToast({
+      message: wasLiked ? 'Removed from liked songs.' : 'Saved to your liked songs.',
+      kind: 'info',
+      durationMs: 1600,
     });
   }
 
@@ -560,17 +548,6 @@ export default function NowPlaying() {
         </button>
       </div>
 
-      <div className="relative z-10 mt-3 flex items-center justify-between text-xs text-emerald-100/75">
-        <button className="inline-flex items-center gap-1.5" onClick={() => showToast({ message: 'Connect to a device coming soon.', kind: 'info' })}>
-          <span className="material-symbols-outlined text-base">devices</span>
-          Devices
-        </button>
-        <button className="inline-flex items-center gap-1.5" onClick={() => showToast({ message: 'More actions coming soon.', kind: 'info' })}>
-          <span className="material-symbols-outlined text-base">more_horiz</span>
-          More
-        </button>
-      </div>
-
       {!currentTrack.previewUrl && (
         <p className="relative z-10 mt-6 text-sm text-amber-600 dark:text-amber-400">No preview URL available for this song. Skip to another track to play.</p>
       )}
@@ -656,53 +633,6 @@ export default function NowPlaying() {
         {artistInfo?.followers?.total && (
           <p className="text-xs text-emerald-100/80">{artistInfo.followers.total.toLocaleString()} followers</p>
         )}
-      </section>
-
-      <section className="relative z-10 mt-4 space-y-3 rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-sm">
-        <h3 className="text-sm font-bold uppercase tracking-widest text-primary">Explore More Songs</h3>
-        {relatedTracks.length === 0 && !detailError && <p className="text-xs text-emerald-100/80">No related tracks available for this song.</p>}
-        {detailError && <p className="text-xs text-amber-600 dark:text-amber-400">{detailError}</p>}
-        <div className="space-y-2">
-          {relatedTracks.map((track) => (
-            <div key={track.id} className="flex items-center justify-between rounded-lg border border-white/15 bg-black/10 px-3 py-2">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold truncate text-white">{track.name}</p>
-                <p className="text-xs text-emerald-100/80">{msToClock(track.duration_ms)}</p>
-              </div>
-              <button
-                className="text-primary"
-                onClick={() => {
-                  if (!currentTrack) {
-                    return;
-                  }
-
-                  updatePlayerState((state) => {
-                    const nextQueue = [
-                      ...state.queue.slice(0, state.currentIndex + 1),
-                      {
-                        id: track.id,
-                        name: track.name,
-                        artist: track.artists?.map((artist) => artist.name).join(', ') || currentTrack.artist,
-                        album: currentTrack.album,
-                        imageUrl: currentTrack.imageUrl,
-                        previewUrl: track.preview_url,
-                        durationMs: track.duration_ms,
-                      },
-                      ...state.queue.slice(state.currentIndex + 1),
-                    ];
-
-                    return {
-                      ...state,
-                      queue: nextQueue,
-                    };
-                  });
-                }}
-              >
-                <span className="material-symbols-outlined">add</span>
-              </button>
-            </div>
-          ))}
-        </div>
       </section>
 
       <section className="relative z-10 mt-4 mb-8 space-y-2 rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-sm">

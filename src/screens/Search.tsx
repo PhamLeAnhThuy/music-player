@@ -245,21 +245,12 @@ export default function Search() {
                 <h3 className="font-bold text-xl truncate">{topResult.name}</h3>
                 <p className="text-sm text-slate-500 dark:text-primary/60 truncate">{topResult.artists.map((artist) => artist.name).join(', ')}</p>
               </div>
-              <a
-                href={topResult.external_urls.spotify}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-primary text-background-dark p-2 rounded-full shadow-lg"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <span className="material-symbols-outlined fill-1">open_in_new</span>
-              </a>
               <button
                 type="button"
                 className="bg-primary text-background-dark p-2 rounded-full shadow-lg"
                 onClick={(event) => {
                   event.stopPropagation();
-                  playPreview(topResult);
+                  onPlayFromSearch(topResult);
                 }}
               >
                 <span className="material-symbols-outlined fill-1">{playingTrackId === topResult.id ? 'pause' : 'play_arrow'}</span>
@@ -299,7 +290,7 @@ export default function Search() {
                   className="text-slate-500 text-xl"
                   onClick={(event) => {
                     event.stopPropagation();
-                    playPreview(song);
+                    onPlayFromSearch(song);
                   }}
                 >
                   <span className="material-symbols-outlined">{playingTrackId === song.id ? 'pause' : 'play_arrow'}</span>

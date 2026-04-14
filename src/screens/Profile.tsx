@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ApiProfile, clearStoredUserId, getUserProfile } from '../lib/api';
+import { ApiListeningStats, ApiProfile, clearStoredUserId, getUserListeningStats, getUserProfile } from '../lib/api';
 import { getStoredThemeMode, setThemeMode, ThemeMode } from '../lib/theme';
 
 export default function Profile() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<ApiProfile | null>(null);
+  const [listeningStats, setListeningStats] = useState<ApiListeningStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => getStoredThemeMode());
@@ -15,8 +16,12 @@ export default function Profile() {
       try {
         setIsLoading(true);
         setError('');
-        const response = await getUserProfile();
-        setProfile(response.profile);
+        const [profileResponse, statsResponse] = await Promise.all([
+          getUserProfile(),
+          getUserListeningStats(),
+        ]);
+        setProfile(profileResponse.profile);
+        setListeningStats(statsResponse.stats);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load profile.');
       } finally {
@@ -35,6 +40,18 @@ export default function Profile() {
   function onChangeThemeMode(mode: ThemeMode) {
     setThemeMode(mode);
     setThemeModeState(mode);
+  }
+
+  function formatListeningTime(totalSeconds: number) {
+    const safeSeconds = Math.max(0, totalSeconds || 0);
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+
+    return `${minutes}m`;
   }
 
   return (
@@ -101,43 +118,31 @@ export default function Profile() {
               </button>
             </div>
           </div>
-          <div className="space-y-1">
-            <button className="w-full flex items-center justify-between p-4 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-xl transition-colors group">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                  <span className="material-symbols-outlined">person</span>
-                </div>
-                <span className="font-medium">Personal Information</span>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last 7 Days</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-slate-100 p-3 dark:bg-slate-800/70">
+                <p className="text-xs text-slate-500 dark:text-slate-400">Listening Time</p>
+                <p className="mt-1 truncate text-lg font-bold">{formatListeningTime(listeningStats?.totalListeningSeconds || 0)}</p>
               </div>
-              <span className="material-symbols-outlined text-slate-400 group-hover:translate-x-1 transition-transform">chevron_right</span>
-            </button>
-            <button className="w-full flex items-center justify-between p-4 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-xl transition-colors group">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                  <span className="material-symbols-outlined">notifications</span>
-                </div>
-                <span className="font-medium">Notifications</span>
+              <div className="rounded-lg bg-slate-100 p-3 dark:bg-slate-800/70">
+                <p className="text-xs text-slate-500 dark:text-slate-400">Top Genres</p>
+                {listeningStats?.topGenres?.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {listeningStats.topGenres.map((genre) => (
+                      <span key={genre} className="rounded-full bg-primary/15 px-2 py-1 text-xs font-semibold text-primary">
+                        {genre}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 truncate text-sm font-bold">Not enough data yet</p>
+                )}
               </div>
-              <span className="material-symbols-outlined text-slate-400 group-hover:translate-x-1 transition-transform">chevron_right</span>
-            </button>
-            <button className="w-full flex items-center justify-between p-4 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-xl transition-colors group">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                  <span className="material-symbols-outlined">security</span>
-                </div>
-                <span className="font-medium">Privacy & Security</span>
-              </div>
-              <span className="material-symbols-outlined text-slate-400 group-hover:translate-x-1 transition-transform">chevron_right</span>
-            </button>
-            <button className="w-full flex items-center justify-between p-4 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-xl transition-colors group">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                  <span className="material-symbols-outlined">help</span>
-                </div>
-                <span className="font-medium">Help Center</span>
-              </div>
-              <span className="material-symbols-outlined text-slate-400 group-hover:translate-x-1 transition-transform">chevron_right</span>
-            </button>
+            </div>
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+              Weekly listening activity updates from your recent playback history.
+            </p>
           </div>
         </section>
       </main>
