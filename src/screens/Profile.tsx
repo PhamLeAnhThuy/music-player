@@ -16,12 +16,15 @@ export default function Profile() {
       try {
         setIsLoading(true);
         setError('');
-        const [profileResponse, statsResponse] = await Promise.all([
-          getUserProfile(),
-          getUserListeningStats(),
-        ]);
+        const profileResponse = await getUserProfile();
         setProfile(profileResponse.profile);
-        setListeningStats(statsResponse.stats);
+
+        try {
+          const statsResponse = await getUserListeningStats();
+          setListeningStats(statsResponse.stats);
+        } catch {
+          setListeningStats(null);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load profile.');
       } finally {
