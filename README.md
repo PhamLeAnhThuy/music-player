@@ -18,3 +18,13 @@ View your app in AI Studio: https://ai.studio/apps/dbeafd83-31b1-4eb6-a51d-682be
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Run In Android Emulator
+
+1. Start an Android emulator in Android Studio.
+2. Install dependencies:
+   `npm install`
+3. Start the app with live reload:
+   `npm run android:dev`
+
+This launches the Vite dev server and installs the app into the emulator. Changes to the web app update immediately in the emulator while the dev server is running.

@@ -453,8 +453,8 @@ export default function NowPlaying() {
   if (!currentTrack) {
     return (
       <div className="h-screen bg-background-light dark:bg-background-dark px-6 py-10">
-        <button className="text-primary text-sm font-bold" onClick={() => navigate('/playlist')}>
-          Back to Playlist
+        <button className="text-primary text-sm font-bold" onClick={() => navigate('/home')}>
+          Back to Home
         </button>
         <h1 className="text-2xl font-bold mt-6">Nothing is playing yet</h1>
         <p className="text-slate-500 mt-2">Select a song from your playlist to start now playing.</p>
@@ -478,7 +478,7 @@ export default function NowPlaying() {
       </div>
 
       <div className="relative z-10 flex items-center justify-between">
-        <Link to="/playlist" className="text-slate-100 p-2 hover:bg-white/10 rounded-full transition-colors">
+        <Link to="/home" className="text-slate-100 p-2 hover:bg-white/10 rounded-full transition-colors">
           <span className="material-symbols-outlined">expand_more</span>
         </Link>
         <div className="flex flex-col items-center">

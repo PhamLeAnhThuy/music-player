@@ -5,7 +5,10 @@ export default function BottomNav() {
   const path = location.pathname;
 
   return (
-    <nav className="bg-background-light dark:bg-background-dark/95 backdrop-blur-lg border-t border-slate-200 dark:border-primary/10 px-6 py-3 flex justify-between items-center">
+    <nav
+      className="bg-background-light dark:bg-background-dark/95 backdrop-blur-lg border-t border-slate-200 dark:border-primary/10 px-6 py-3 flex justify-between items-center"
+      style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}
+    >
       <Link to="/home" className={`flex flex-col items-center gap-1 ${path === '/home' ? 'text-primary' : 'text-slate-400 dark:text-slate-500 hover:text-primary'} transition-colors`}>
         <span className={`material-symbols-outlined ${path === '/home' ? 'fill-1' : ''}`}>home</span>
         <span className="text-[10px] font-bold">Home</span>

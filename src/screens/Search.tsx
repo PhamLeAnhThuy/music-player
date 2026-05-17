@@ -141,6 +141,31 @@ export default function Search() {
   function onPlayFromSearch(song: ApiTrack) {
     const selectedTrack = toPlayerTrack(song);
     const previousState = getPlayerState();
+    const current = previousState.queue[previousState.currentIndex] || null;
+
+    // If the clicked track is already the current track, toggle play/pause instead of restarting
+    if (current && current.id === selectedTrack.id) {
+      // If there's no preview, open in Spotify
+      if (!selectedTrack.previewUrl) {
+        if (song.external_urls?.spotify) {
+          window.open(song.external_urls.spotify, '_blank', 'noopener,noreferrer');
+        }
+        showToast({ message: `"${song.name}" has no preview. Open in Spotify to listen.`, kind: 'info' });
+        return;
+      }
+
+      const nextPlaying = !previousState.isPlaying;
+      setPlayerState({
+        ...previousState,
+        isPlaying: nextPlaying,
+      });
+
+      setPlayingTrackId(nextPlaying ? selectedTrack.id : null);
+      showToast({ message: nextPlaying ? `Resumed "${song.name}".` : `Paused "${song.name}".`, kind: 'info', durationMs: 1200 });
+      return;
+    }
+
+    // New selection: put the selected track at front of queue and start playing if preview exists
     const existingQueue = previousState.queue || [];
     const dedupedQueue = existingQueue.filter((track) => track.id !== selectedTrack.id);
 
@@ -154,8 +179,9 @@ export default function Search() {
       currentTimeMs: 0,
     });
 
-    if (song.preview_url) {
-      playPreview(song);
+    setPlayingTrackId(selectedTrack.previewUrl ? selectedTrack.id : null);
+
+    if (selectedTrack.previewUrl) {
       showToast({ message: `Playing "${song.name}" from search.`, kind: 'success', durationMs: 1600 });
       return;
     }
@@ -231,10 +257,12 @@ export default function Search() {
         {topResult && (
           <section>
             <h2 className="text-lg font-bold mb-3">Top Result</h2>
-            <button
-              type="button"
+            <div
+              role="button"
+              tabIndex={0}
               className="w-full text-left bg-slate-200 dark:bg-primary/5 rounded-xl p-4 flex items-center gap-4 cursor-pointer"
               onClick={() => onPlayFromSearch(topResult)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlayFromSearch(topResult); } }}
             >
               <img
                 alt="Album"
@@ -255,7 +283,7 @@ export default function Search() {
               >
                 <span className="material-symbols-outlined fill-1">{playingTrackId === topResult.id ? 'pause' : 'play_arrow'}</span>
               </button>
-            </button>
+            </div>
           </section>
         )}
 
@@ -270,11 +298,13 @@ export default function Search() {
 
           <div className="space-y-1 mt-2">
             {songs.map((song) => (
-              <button
+              <div
                 key={song.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 className="w-full text-left flex items-center gap-3 p-2 hover:bg-primary/10 rounded-lg transition-colors group cursor-pointer"
                 onClick={() => onPlayFromSearch(song)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlayFromSearch(song); } }}
               >
                 <div className="relative w-12 h-12 shrink-0">
                   <img alt={song.album.name} className="w-full h-full rounded object-cover" src={song.album.images[0]?.url || 'https://via.placeholder.com/96'} />
@@ -306,7 +336,7 @@ export default function Search() {
                     <span className="material-symbols-outlined">open_in_new</span>
                   </a>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         </section>

@@ -14,3 +14,12 @@ local.properties
 
 # Bundle artifacts
 *.jsbundle
+
+# JDK and Android SDK
+jdk*/
+java*/
+Android/Sdk/
+Android/sdk/
+sdk/
+.android/
+.android/*

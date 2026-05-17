@@ -12,7 +12,7 @@ export default function Layout() {
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display antialiased">
-      <div className="flex-1 overflow-y-auto hide-scrollbar">
+      <div className="flex-1 overflow-y-auto hide-scrollbar" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         <Outlet />
       </div>
       {showNav && (

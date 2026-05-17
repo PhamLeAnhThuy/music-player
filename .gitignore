@@ -24,3 +24,20 @@ Desktop.ini
 # Local-only files (do not push)
 .local/developer-credentials.json
 .github/skills/commit-balance/SKILL.md
+
+# JDK and Android SDK/ADK
+# ignore local JDK installations and Android SDK folders
+jdk*/
+java*/
+**/jdk*/
+**/java*/
+.# ignore hidden jdk folders like .jdk17
+.jdk*/
+.jdk*/**
+Android/Sdk/
+Android/sdk/
+**/Android/Sdk/
+**/Android/sdk/
+sdk/
+.android/
+.android/*
