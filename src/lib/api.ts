@@ -9,10 +9,11 @@ const GET_CACHE_STORAGE_KEY = 'music-player-get-cache-v1';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
 
-type RequestOptions = {
+export type RequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   headers?: Record<string, string>;
+  bypassCache?: boolean;
 };
 
 type CachedGetEntry = {
@@ -188,6 +189,21 @@ function readCachedGetPayload<T>(cacheKey: string, allowExpired = false): T | nu
   return entry.payload as T;
 }
 
+export function getCachedGetResponse<T>(path: string, options: RequestOptions = {}, allowExpired = true): T | null {
+  const method = options.method || 'GET';
+  if (method !== 'GET') {
+    return null;
+  }
+
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...options.headers,
+  };
+
+  const cacheKey = getCacheKey(path, method, headers);
+  return readCachedGetPayload<T>(cacheKey, allowExpired);
+}
+
 function writeCachedGetPayload(cacheKey: string, payload: unknown) {
   if (!cacheKey) {
     return;
@@ -219,8 +235,9 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
 
   const method = options.method || 'GET';
   const cacheKey = getCacheKey(path, method, headers);
+  const shouldUseCache = method === 'GET' && !options.bypassCache;
 
-  if (method === 'GET') {
+  if (shouldUseCache) {
     const cachedPayload = readCachedGetPayload<T>(cacheKey);
     if (cachedPayload !== null) {
       return cachedPayload;
@@ -322,7 +339,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
     throw new Error('Request failed after retries.');
   };
 
-  if (method === 'GET') {
+  if (method === 'GET' && !options.bypassCache) {
     const requestPromise = executeRequest().finally(() => {
       inFlightGetRequests.delete(cacheKey);
     });
@@ -355,16 +372,19 @@ export async function requestPasswordReset(email: string) {
   });
 }
 
-export async function searchSongs(query: string, limit = 20) {
+export async function searchSongs(query: string, limit = 20, options: { bypassCache?: boolean } = {}) {
   const params = new URLSearchParams({ q: query, limit: String(limit) });
-  return apiRequest<{ tracks: { items: ApiTrack[] } }>(`/api/songs/search?${params.toString()}`);
+  return apiRequest<{ tracks: { items: ApiTrack[] } }>(`/api/songs/search?${params.toString()}`, {
+    bypassCache: options.bypassCache,
+  });
 }
 
-export async function getRecommendations(userId: string) {
+export async function getRecommendations(userId: string, options: { bypassCache?: boolean } = {}) {
   return apiRequest<{ tracks: ApiTrack[] }>('/api/recommendations', {
     headers: {
       'x-user-id': userId,
     },
+    bypassCache: options.bypassCache,
   });
 }
 
@@ -379,9 +399,10 @@ function requireUserIdHeader() {
   };
 }
 
-export async function getUserProfile() {
+export async function getUserProfile(options: { bypassCache?: boolean } = {}) {
   return apiRequest<{ profile: ApiProfile }>('/api/user/profile', {
     headers: requireUserIdHeader(),
+    bypassCache: options.bypassCache,
   });
 }
 
@@ -393,15 +414,17 @@ export async function updateUserProfile(payload: { name?: string; avatar_url?: s
   });
 }
 
-export async function getUserListeningStats() {
+export async function getUserListeningStats(options: { bypassCache?: boolean } = {}) {
   return apiRequest<{ stats: ApiListeningStats }>('/api/user/profile/stats', {
     headers: requireUserIdHeader(),
+    bypassCache: options.bypassCache,
   });
 }
 
-export async function listUserPlaylists() {
+export async function listUserPlaylists(options: { bypassCache?: boolean } = {}) {
   return apiRequest<{ playlists: ApiPlaylist[] }>('/api/playlists', {
     headers: requireUserIdHeader(),
+    bypassCache: options.bypassCache,
   });
 }
 

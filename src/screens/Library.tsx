@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiPlaylist, createUserPlaylist, deleteUserPlaylist, listUserPlaylists } from '../lib/api';
+import { ApiPlaylist, createUserPlaylist, deleteUserPlaylist, getCachedGetResponse, getStoredUserId, listUserPlaylists } from '../lib/api';
 import { showToast } from '../lib/toast';
 
 function getInitials(value: string) {
@@ -15,9 +15,18 @@ function getInitials(value: string) {
 
 export default function Library() {
   const navigate = useNavigate();
-  const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
+  const userId = getStoredUserId();
+  const cachedPlaylists = userId
+    ? getCachedGetResponse<{ playlists: ApiPlaylist[] }>('/api/playlists', {
+        headers: {
+          'x-user-id': userId,
+        },
+      })?.playlists || []
+    : [];
+
+  const [playlists, setPlaylists] = useState<ApiPlaylist[]>(() => cachedPlaylists);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(() => Boolean(userId) && cachedPlaylists.length === 0);
   const [isCreating, setIsCreating] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -52,19 +61,6 @@ export default function Library() {
     return [...visible].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [playlists, searchTerm]);
 
-  async function loadPlaylists() {
-    try {
-      setIsLoading(true);
-      setError('');
-      const response = await listUserPlaylists();
-      setPlaylists(response.playlists || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load playlists.');
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -79,7 +75,38 @@ export default function Library() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadPlaylists() {
+      if (!userId) {
+        setError('Sign in to manage your library.');
+        return;
+      }
+
+      try {
+        const response = await listUserPlaylists({ bypassCache: true });
+        if (cancelled) {
+          return;
+        }
+
+        setPlaylists(response.playlists || []);
+        setError('');
+      } catch (err) {
+        if (!cancelled && cachedPlaylists.length === 0) {
+          setError(err instanceof Error ? err.message : 'Failed to load playlists.');
+        }
+      } finally {
+        if (!cancelled && cachedPlaylists.length === 0) {
+          setIsLoading(false);
+        }
+      }
+    }
+
     void loadPlaylists();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function openCreateModal() {

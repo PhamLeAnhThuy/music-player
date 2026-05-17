@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiTrack, getRecommendations, getStoredUserId, searchSongs } from '../lib/api';
+import { ApiProfile, ApiTrack, getCachedGetResponse, getRecommendations, getStoredUserId, getUserProfile, searchSongs } from '../lib/api';
 import { getPlayerState, PlayerTrack, setPlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
 
@@ -18,14 +18,33 @@ function toPlayerTrack(track: ApiTrack): PlayerTrack {
 
 export default function Home() {
   const navigate = useNavigate();
-  const [recommendations, setRecommendations] = useState<ApiTrack[]>([]);
-  const [trendingSongs, setTrendingSongs] = useState<ApiTrack[]>([]);
+  const userId = getStoredUserId();
+  const cachedProfile = userId
+    ? getCachedGetResponse<{ profile: ApiProfile }>('/api/user/profile', {
+        headers: {
+          'x-user-id': userId,
+        },
+      })?.profile || null
+    : null;
+  const cachedRecommendations = userId
+    ? getCachedGetResponse<{ tracks: ApiTrack[] }>('/api/recommendations', {
+        headers: {
+          'x-user-id': userId,
+        },
+      })?.tracks || []
+    : [];
+  const cachedTrendingSongs =
+    getCachedGetResponse<{ tracks: { items: ApiTrack[] } }>(`/api/songs/search?${new URLSearchParams({ q: 'top hits', limit: '12' }).toString()}`)?.tracks.items || [];
+
+  const [profile, setProfile] = useState<ApiProfile | null>(() => cachedProfile);
+  const [recommendations, setRecommendations] = useState<ApiTrack[]>(() => cachedRecommendations);
+  const [trendingSongs, setTrendingSongs] = useState<ApiTrack[]>(() => cachedTrendingSongs);
   const [recentlyPlayed, setRecentlyPlayed] = useState<PlayerTrack[]>([]);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [recommendationError, setRecommendationError] = useState('');
   const [trendingError, setTrendingError] = useState('');
-  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
-  const [loadingTrending, setLoadingTrending] = useState(false);
+  const [loadingRecommendations, setLoadingRecommendations] = useState(() => Boolean(userId) && cachedRecommendations.length === 0);
+  const [loadingTrending, setLoadingTrending] = useState(() => cachedTrendingSongs.length === 0);
 
   function notifyOfflineAction() {
     showToast({
@@ -101,43 +120,95 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const userId = getStoredUserId();
     if (!userId) {
       setRecommendationError('Sign in to load personalized recommendations.');
       return;
     }
 
+    let cancelled = false;
+
     async function loadRecommendations() {
       try {
-        setLoadingRecommendations(true);
-        setRecommendationError('');
-        const response = await getRecommendations(userId);
+        const response = await getRecommendations(userId, { bypassCache: true });
+        if (cancelled) {
+          return;
+        }
+
         setRecommendations(response.tracks || []);
+        setRecommendationError('');
       } catch (err) {
-        setRecommendationError(err instanceof Error ? err.message : 'Could not load recommendations.');
+        if (!cancelled && cachedRecommendations.length === 0) {
+          setRecommendationError(err instanceof Error ? err.message : 'Could not load recommendations.');
+        }
       } finally {
-        setLoadingRecommendations(false);
+        if (!cancelled && cachedRecommendations.length === 0) {
+          setLoadingRecommendations(false);
+        }
       }
     }
 
     void loadRecommendations();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function loadTrendingSongs() {
       try {
-        setLoadingTrending(true);
-        setTrendingError('');
-        const response = await searchSongs('top hits', 12);
+        const response = await searchSongs('top hits', 12, { bypassCache: true });
+        if (cancelled) {
+          return;
+        }
+
         setTrendingSongs(response.tracks.items || []);
+        setTrendingError('');
       } catch (err) {
-        setTrendingError(err instanceof Error ? err.message : 'Could not load trending songs.');
+        if (!cancelled && cachedTrendingSongs.length === 0) {
+          setTrendingError(err instanceof Error ? err.message : 'Could not load trending songs.');
+        }
       } finally {
-        setLoadingTrending(false);
+        if (!cancelled && cachedTrendingSongs.length === 0) {
+          setLoadingTrending(false);
+        }
       }
     }
 
     void loadTrendingSongs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadProfile() {
+      try {
+        const response = await getUserProfile({ bypassCache: true });
+        if (!cancelled) {
+          setProfile(response.profile);
+        }
+      } catch {
+        if (!cancelled && !cachedProfile) {
+          setProfile(null);
+        }
+      }
+    }
+
+    void loadProfile();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -157,11 +228,15 @@ export default function Home() {
       <header className="flex items-center justify-between px-4 py-4 shrink-0">
         <div className="flex items-center gap-3">
           <div className="size-10 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden border border-primary/30">
-            <img alt="User Profile" className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBavEEsbJAZa2xZB7GrXiX7xbCpMJsjvCXNQ-XqkfmrCvUaKeB2TfeDYYH17bOgjS4Nu452oMIY3BVp4ba13AQHDzeQ8zchCDVWy-Pv_zlFH3kmqHrlXu_SBwl9JGVf9x6sI_GcW4ndOTrjXaMI9SLDxicjo3gZkeruK2DPhGrhqqNNmTNq7lV8VEs-ASUqd1gAjkr345F9Gujr1iacfjqrrtvjK51ga3XoXoN6JrsL35NW3R0qBybD6nDUw26WxjcePIGjF5U0vro" />
+            <img
+              alt={profile?.name || 'User profile'}
+              className="w-full h-full object-cover"
+              src={profile?.avatar_url || 'https://lh3.googleusercontent.com/aida-public/AB6AXuBavEEsbJAZa2xZB7GrXiX7xbCpMJsjvCXNQ-XqkfmrCvUaKeB2TfeDYYH17bOgjS4Nu452oMIY3BVp4ba13AQHDzeQ8zchCDVWy-Pv_zlFH3kmqHrlXu_SBwl9JGVf9x6sI_GcW4ndOTrjXaMI9SLDxicjo3gZkeruK2DPhGrhqqNNmTNq7lV8VEs-ASUqd1gAjkr345F9Gujr1iacfjqrrtvjK51ga3XoXoN6JrsL35NW3R0qBybD6nDUw26WxjcePIGjF5U0vro'}
+            />
           </div>
           <div>
             <p className="text-xs text-slate-500 dark:text-primary/70 font-medium">Good evening</p>
-            <h1 className="text-base font-bold leading-none">Alex Rivera</h1>
+            <h1 className="text-base font-bold leading-none">{profile?.name || 'Alex Rivera'}</h1>
           </div>
         </div>
         <div className="flex gap-2">

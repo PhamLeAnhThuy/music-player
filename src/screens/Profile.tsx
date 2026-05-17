@@ -1,38 +1,76 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ApiListeningStats, ApiProfile, clearStoredUserId, getUserListeningStats, getUserProfile } from '../lib/api';
+import { ApiListeningStats, ApiProfile, clearStoredUserId, getCachedGetResponse, getStoredUserId, getUserListeningStats, getUserProfile } from '../lib/api';
 import { getStoredThemeMode, setThemeMode, ThemeMode } from '../lib/theme';
 
 export default function Profile() {
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<ApiProfile | null>(null);
-  const [listeningStats, setListeningStats] = useState<ApiListeningStats | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const userId = getStoredUserId();
+  const cachedProfile = userId
+    ? getCachedGetResponse<{ profile: ApiProfile }>('/api/user/profile', {
+        headers: {
+          'x-user-id': userId,
+        },
+      })?.profile || null
+    : null;
+  const cachedListeningStats = userId
+    ? getCachedGetResponse<{ stats: ApiListeningStats }>('/api/user/profile/stats', {
+        headers: {
+          'x-user-id': userId,
+        },
+      })?.stats || null
+    : null;
+
+  const [profile, setProfile] = useState<ApiProfile | null>(() => cachedProfile);
+  const [listeningStats, setListeningStats] = useState<ApiListeningStats | null>(() => cachedListeningStats);
+  const [isLoading, setIsLoading] = useState(() => Boolean(userId) && cachedProfile === null);
   const [error, setError] = useState('');
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => getStoredThemeMode());
 
   useEffect(() => {
+    if (!userId) {
+      setError('Sign in to view your profile.');
+      setIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
     async function loadProfile() {
       try {
-        setIsLoading(true);
-        setError('');
-        const profileResponse = await getUserProfile();
+        const profileResponse = await getUserProfile({ bypassCache: true });
+        if (cancelled) {
+          return;
+        }
+
         setProfile(profileResponse.profile);
 
         try {
-          const statsResponse = await getUserListeningStats();
-          setListeningStats(statsResponse.stats);
+          const statsResponse = await getUserListeningStats({ bypassCache: true });
+          if (!cancelled) {
+            setListeningStats(statsResponse.stats);
+          }
         } catch {
-          setListeningStats(null);
+          if (!cancelled && cachedListeningStats === null) {
+            setListeningStats(null);
+          }
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load profile.');
+        if (!cancelled && cachedProfile === null) {
+          setError(err instanceof Error ? err.message : 'Failed to load profile.');
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled && cachedProfile === null) {
+          setIsLoading(false);
+        }
       }
     }
 
     void loadProfile();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function onLogout() {

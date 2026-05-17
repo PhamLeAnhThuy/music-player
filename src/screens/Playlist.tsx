@@ -10,6 +10,8 @@ import {
   removeSongFromPlaylist,
   reorderPlaylistSongs,
   searchSongs,
+  getCachedGetResponse,
+  getStoredUserId,
 } from '../lib/api';
 import { getPlayerState, PlayerTrack, setPlayerState, updatePlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
@@ -54,12 +56,32 @@ function shuffleTracks(items: PlaylistTrackView[]) {
 export default function Playlist() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const userId = getStoredUserId();
+  const cachedPlaylists = userId
+    ? getCachedGetResponse<{ playlists: ApiPlaylist[] }>('/api/playlists', {
+        headers: {
+          'x-user-id': userId,
+        },
+      })?.playlists || []
+    : [];
+  const queryPlaylistId = searchParams.get('playlistId');
+  const initialSelectedPlaylistId = (() => {
+    if (!cachedPlaylists.length) {
+      return '';
+    }
 
-  const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
+    if (queryPlaylistId && cachedPlaylists.some((playlist) => playlist.id === queryPlaylistId)) {
+      return queryPlaylistId;
+    }
+
+    return cachedPlaylists[0].id;
+  })();
+
+  const [playlists, setPlaylists] = useState<ApiPlaylist[]>(() => cachedPlaylists);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState(() => initialSelectedPlaylistId);
   const [tracks, setTracks] = useState<PlaylistTrackView[]>([]);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(() => cachedPlaylists.length === 0);
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -106,7 +128,7 @@ export default function Playlist() {
   const canReorderTracks = trackSortMode === 'custom' && !trackSearch.trim();
 
   async function loadPlaylists() {
-    const response = await listUserPlaylists();
+    const response = await listUserPlaylists({ bypassCache: true });
     const items = response.playlists || [];
     setPlaylists(items);
 
@@ -115,10 +137,12 @@ export default function Playlist() {
       return;
     }
 
-    const queryPlaylistId = searchParams.get('playlistId');
+    const isCurrentPlaylistValid = selectedPlaylistId && items.some((playlist) => playlist.id === selectedPlaylistId);
     const isQueryPlaylistValid = queryPlaylistId && items.some((playlist) => playlist.id === queryPlaylistId);
-    const nextPlaylistId = isQueryPlaylistValid ? (queryPlaylistId as string) : items[0].id;
-    setSelectedPlaylistId(nextPlaylistId);
+
+    if (!isCurrentPlaylistValid) {
+      setSelectedPlaylistId(isQueryPlaylistValid ? (queryPlaylistId as string) : items[0].id);
+    }
   }
 
   async function loadPlaylistTracks(playlistId: string) {
@@ -171,15 +195,36 @@ export default function Playlist() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function bootstrap() {
+      if (!userId) {
+        setError('Sign in to manage playlists.');
+        setIsLoading(false);
+        return;
+      }
+
       try {
         await loadPlaylists();
+        if (!cancelled) {
+          setError('');
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load playlists.');
+        if (!cancelled && cachedPlaylists.length === 0) {
+          setError(err instanceof Error ? err.message : 'Failed to load playlists.');
+        }
+      } finally {
+        if (!cancelled && cachedPlaylists.length === 0) {
+          setIsLoading(false);
+        }
       }
     }
 
     void bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
