@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ApiArtist, ApiLyrics, getSongDetails } from '../lib/api';
+import {
+  ApiArtist,
+  ApiLyrics,
+  ApiPlaylist,
+  addSongToPlaylist,
+  getSongDetails,
+  listPlaylistSongs,
+  listUserPlaylists,
+} from '../lib/api';
 import { getPlayerState, msToClock, subscribePlayerState, updatePlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
 
@@ -10,8 +18,6 @@ type LyricLine = {
 };
 
 const PREVIEW_CLIP_FALLBACK_MS = 30_000;
-const LIKED_TRACKS_STORAGE_KEY = 'music-player-liked-track-ids';
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -172,28 +178,6 @@ function mapPreviewTimeToLyricTimeline(elapsedMs: number, trackDurationMs: numbe
   return clamp(scaledMs, 0, trackDurationMs);
 }
 
-function getLikedTrackIds() {
-  try {
-    const raw = localStorage.getItem(LIKED_TRACKS_STORAGE_KEY);
-    if (!raw) {
-      return [] as string[];
-    }
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [] as string[];
-    }
-
-    return parsed.filter((value): value is string => typeof value === 'string');
-  } catch {
-    return [] as string[];
-  }
-}
-
-function setLikedTrackIds(trackIds: string[]) {
-  localStorage.setItem(LIKED_TRACKS_STORAGE_KEY, JSON.stringify(trackIds));
-}
-
 function pickShuffledIndex(currentIndex: number, queueLength: number) {
   if (queueLength <= 1) {
     return currentIndex;
@@ -213,8 +197,12 @@ export default function NowPlaying() {
   const [artistInfo, setArtistInfo] = useState<ApiArtist | null>(null);
   const [lyrics, setLyrics] = useState<ApiLyrics | null>(null);
   const [isLyricsExpanded, setIsLyricsExpanded] = useState(false);
+  const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
+  const [playlistSongsById, setPlaylistSongsById] = useState<Record<string, string[]>>({});
+  const [isPlaylistPickerOpen, setIsPlaylistPickerOpen] = useState(false);
+  const [isLoadingPlaylists, setIsLoadingPlaylists] = useState(false);
+  const [isSavingToPlaylist, setIsSavingToPlaylist] = useState(false);
   const [artGradient, setArtGradient] = useState({ primary: '#1b3f2c', secondary: '#0f2017' });
-  const [likedTrackIds, setLikedTrackIdsState] = useState<string[]>(() => getLikedTrackIds());
   const lyricLineRefs = useRef<Array<HTMLParagraphElement | null>>([]);
 
   const currentTrack = useMemo(() => {
@@ -235,6 +223,9 @@ export default function NowPlaying() {
     if (!currentTrack) {
       setArtistInfo(null);
       setLyrics(null);
+      setPlaylists([]);
+      setPlaylistSongsById({});
+      setIsPlaylistPickerOpen(false);
       return;
     }
 
@@ -251,6 +242,67 @@ export default function NowPlaying() {
     }
 
     void loadSongDetails();
+  }, [currentTrack?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPlaylistTargets() {
+      if (!currentTrack) {
+        setPlaylists([]);
+        setPlaylistSongsById({});
+        setIsLoadingPlaylists(false);
+        return;
+      }
+
+      setIsLoadingPlaylists(true);
+
+      try {
+        const response = await listUserPlaylists({ bypassCache: true });
+        const items = response.playlists || [];
+
+        if (cancelled) {
+          return;
+        }
+
+        setPlaylists(items);
+
+        if (!items.length) {
+          setPlaylistSongsById({});
+          return;
+        }
+
+        const entries = await Promise.all(
+          items.map(async (playlist) => {
+            try {
+              const songsResponse = await listPlaylistSongs(playlist.id, { bypassCache: true });
+              return [playlist.id, (songsResponse.songs || []).map((song) => song.spotify_track_id)] as const;
+            } catch {
+              return [playlist.id, []] as const;
+            }
+          }),
+        );
+
+        if (!cancelled) {
+          setPlaylistSongsById(Object.fromEntries(entries));
+        }
+      } catch {
+        if (!cancelled) {
+          setPlaylists([]);
+          setPlaylistSongsById({});
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingPlaylists(false);
+        }
+      }
+    }
+
+    void loadPlaylistTargets();
+
+    return () => {
+      cancelled = true;
+    };
   }, [currentTrack?.id]);
 
   useEffect(() => {
@@ -363,19 +415,46 @@ export default function NowPlaying() {
     });
   }
 
-  function toggleTrackLike(trackId: string) {
-    const wasLiked = likedTrackIds.includes(trackId);
-    const next = wasLiked
-      ? likedTrackIds.filter((id) => id !== trackId)
-      : [...likedTrackIds, trackId];
+  async function saveTrackToPlaylist(playlistId: string) {
+    if (!currentTrack) {
+      return;
+    }
 
-    setLikedTrackIdsState(next);
-    setLikedTrackIds(next);
-    showToast({
-      message: wasLiked ? 'Removed from liked songs.' : 'Saved to your liked songs.',
-      kind: 'info',
-      durationMs: 1600,
-    });
+    const existingTrackIds = playlistSongsById[playlistId] || [];
+    if (existingTrackIds.includes(currentTrack.id)) {
+      showToast({ message: 'That song is already in this playlist.', kind: 'info', durationMs: 1600 });
+      return;
+    }
+
+    try {
+      setIsSavingToPlaylist(true);
+
+      const response = await addSongToPlaylist(playlistId, {
+        spotifyTrackId: currentTrack.id,
+        position: existingTrackIds.length,
+      });
+
+      setPlaylistSongsById((current) => ({
+        ...current,
+        [playlistId]: [...(current[playlistId] || []), currentTrack.id],
+      }));
+
+      showToast({
+        message: response.alreadyExists
+          ? 'That song was already saved in this playlist.'
+          : `Saved "${currentTrack.name}" to the playlist.`,
+        kind: 'success',
+        durationMs: 1800,
+      });
+    } catch (error) {
+      showToast({
+        message: error instanceof Error ? error.message : 'Unable to save this song right now.',
+        kind: 'error',
+        durationMs: 1800,
+      });
+    } finally {
+      setIsSavingToPlaylist(false);
+    }
   }
 
   async function shareCurrentTrack() {
@@ -383,23 +462,49 @@ export default function NowPlaying() {
       return;
     }
 
-    const shareText = `${currentTrack.name} - ${currentTrack.artist}`;
-    const shareUrl = `https://open.spotify.com/search/${encodeURIComponent(`${currentTrack.name} ${currentTrack.artist}`)}`;
+    const spotifyTrackUrl = `https://open.spotify.com/track/${currentTrack.id}`;
+
+    async function copyToClipboard(text: string) {
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {
+          // Fall through to the legacy copy path below.
+        }
+      }
+
+      try {
+        const tempInput = document.createElement('textarea');
+        tempInput.value = text;
+        tempInput.setAttribute('readonly', 'true');
+        tempInput.style.position = 'fixed';
+        tempInput.style.top = '0';
+        tempInput.style.left = '0';
+        tempInput.style.opacity = '0';
+        document.body.appendChild(tempInput);
+        tempInput.focus();
+        tempInput.select();
+
+        const copied = document.execCommand('copy');
+        document.body.removeChild(tempInput);
+        return copied;
+      } catch {
+        return false;
+      }
+    }
 
     try {
-      if (navigator.share) {
-        await navigator.share({
-          title: currentTrack.name,
-          text: shareText,
-          url: shareUrl,
-        });
+      const copied = await copyToClipboard(spotifyTrackUrl);
+      if (copied) {
+        showToast({ message: 'Spotify track link copied to clipboard.', kind: 'success' });
         return;
       }
 
-      await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
-      showToast({ message: 'Track link copied to clipboard.', kind: 'success' });
+      window.prompt('Copy the Spotify link', spotifyTrackUrl);
+      showToast({ message: 'Copy the Spotify link from the prompt.', kind: 'info' });
     } catch {
-      showToast({ message: 'Unable to share this track right now.', kind: 'error' });
+      showToast({ message: 'Unable to copy the Spotify link right now.', kind: 'error' });
     }
   }
 
@@ -414,7 +519,13 @@ export default function NowPlaying() {
     [lyrics?.plain],
   );
   const hasLyrics = lyricLines.length > 0 || plainLyricLines.length > 0;
-  const isLiked = currentTrack ? likedTrackIds.includes(currentTrack.id) : false;
+  const currentTrackSavedPlaylistIds = useMemo(
+    () =>
+      playlists
+        .filter((playlist) => (playlistSongsById[playlist.id] || []).includes(currentTrack.id))
+        .map((playlist) => playlist.id),
+    [currentTrack.id, playlistSongsById, playlists],
+  );
   const activeLyricIndex = lyricLines.findIndex((line, index) => {
     const nextStartMs = lyricLines[index + 1]?.startMs ?? Number.MAX_SAFE_INTEGER;
     return lyricTimelineMs >= line.startMs && lyricTimelineMs < nextStartMs;
@@ -514,8 +625,13 @@ export default function NowPlaying() {
       </div>
 
       <div className="relative z-10 mt-7 flex items-center justify-between text-emerald-100/90">
-        <button className="p-2" onClick={() => toggleTrackLike(currentTrack.id)} aria-label="Like song">
-          <span className={`material-symbols-outlined text-2xl ${isLiked ? 'fill-icon text-primary' : ''}`}>favorite</span>
+        <button
+          className="p-2 disabled:opacity-50"
+          onClick={() => setIsPlaylistPickerOpen(true)}
+          aria-label="Save song to playlist"
+          disabled={isLoadingPlaylists}
+        >
+          <span className="material-symbols-outlined text-2xl">playlist_add</span>
         </button>
         <button className="p-2" onClick={shareCurrentTrack} aria-label="Share song">
           <span className="material-symbols-outlined text-2xl">ios_share</span>
@@ -641,6 +757,71 @@ export default function NowPlaying() {
         <p className="text-xs text-emerald-100/80">Composers: Metadata unavailable</p>
         <p className="text-xs text-emerald-100/80">Producers: Metadata unavailable</p>
       </section>
+
+      {isPlaylistPickerOpen && (
+        <div className="fixed inset-0 z-[85] flex items-end justify-center bg-black/60 px-4 py-6 backdrop-blur-sm sm:items-center">
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/15 bg-slate-950 text-white shadow-2xl shadow-black/50">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.25em] text-emerald-200/70">Save song</p>
+                <h3 className="mt-1 text-lg font-bold">Choose a playlist</h3>
+                <p className="mt-1 text-sm text-slate-300">{currentTrack.name}</p>
+              </div>
+              <button
+                className="rounded-full p-2 text-slate-300 hover:bg-white/10"
+                onClick={() => setIsPlaylistPickerOpen(false)}
+                aria-label="Close save dialog"
+              >
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] space-y-3 overflow-y-auto px-5 py-4">
+              {isLoadingPlaylists && <p className="text-sm text-slate-300">Loading playlists...</p>}
+              {!isLoadingPlaylists && playlists.length === 0 && (
+                <p className="text-sm text-slate-300">You do not have any playlists yet.</p>
+              )}
+
+              {playlists.map((playlist) => {
+                const savedTrackIds = playlistSongsById[playlist.id] || [];
+                const isAlreadySaved = savedTrackIds.includes(currentTrack.id);
+
+                return (
+                  <button
+                    key={playlist.id}
+                    className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => saveTrackToPlaylist(playlist.id)}
+                    disabled={isAlreadySaved || isSavingToPlaylist}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{playlist.name}</p>
+                      <p className="text-xs text-slate-400">{isAlreadySaved ? 'Already in this playlist' : `${savedTrackIds.length} songs`}</p>
+                    </div>
+                    <span className={`material-symbols-outlined text-xl ${isAlreadySaved ? 'text-emerald-300' : 'text-slate-300'}`}>
+                      {isAlreadySaved ? 'check' : 'playlist_add'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-white/10 px-5 py-4 text-sm text-slate-300">
+              <span>
+                {currentTrackSavedPlaylistIds.length > 0
+                  ? `Already saved in ${currentTrackSavedPlaylistIds.length} playlist${currentTrackSavedPlaylistIds.length === 1 ? '' : 's'}.`
+                  : 'Not saved anywhere yet.'}
+              </span>
+              <button
+                className="rounded-full bg-primary px-4 py-2 font-bold text-slate-950 disabled:opacity-60"
+                onClick={() => setIsPlaylistPickerOpen(false)}
+                disabled={isSavingToPlaylist}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isLyricsExpanded && (
         <div className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-md">

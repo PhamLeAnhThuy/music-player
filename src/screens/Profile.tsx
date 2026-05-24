@@ -114,9 +114,6 @@ export default function Profile() {
           <div className="relative">
             <div className="w-32 h-32 rounded-full ring-4 ring-primary/20 bg-slate-200 dark:bg-slate-800 bg-cover bg-center" style={{ backgroundImage: `url('${profile?.avatar_url || 'https://lh3.googleusercontent.com/aida-public/AB6AXuDHmPwNoeg5hv8lrGGBDq1HpZHwCx9gUj-szg6w1AEkO72mvcF85lCsvi7T85e2Hg5lufLvGQCaWc3bKo4SwtxT0oE1St3DaSRmWQolP2ZXCGbnd_ul190h6dsobzBF-8Q6pysb7dbGIRujSFIKF89gqhVgQ58LHIn0ZGRJpgriOA-DvtHDCxHu6_KB7a9p6-3ExQYALpLIdJHRK3AZcLuZ0XpTUhf92kAwXCGqq60FgJEPtUXydbXsywY3updV9tFjKqkwUUbeLsM'}')` }}>
             </div>
-            <button className="absolute bottom-0 right-0 bg-primary text-background-dark p-2 rounded-full border-4 border-background-light dark:border-background-dark hover:scale-105 transition-transform">
-              <span className="material-symbols-outlined text-sm block">edit</span>
-            </button>
           </div>
           <div className="text-center">
             <h2 className="text-2xl font-bold">{profile?.name || 'User'}</h2>

@@ -460,9 +460,10 @@ export async function updateUserPlaylist(
   });
 }
 
-export async function listPlaylistSongs(playlistId: string) {
+export async function listPlaylistSongs(playlistId: string, options: { bypassCache?: boolean } = {}) {
   return apiRequest<{ songs: ApiPlaylistSong[] }>(`/api/playlists/${playlistId}/songs`, {
     headers: requireUserIdHeader(),
+    bypassCache: options.bypassCache,
   });
 }
 

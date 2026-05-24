@@ -12,6 +12,7 @@ import {
   searchSongs,
   getCachedGetResponse,
   getStoredUserId,
+  updateUserPlaylist,
 } from '../lib/api';
 import { getPlayerState, PlayerTrack, setPlayerState, updatePlayerState } from '../lib/playerState';
 import { showToast } from '../lib/toast';
@@ -127,6 +128,20 @@ export default function Playlist() {
 
   const canReorderTracks = trackSortMode === 'custom' && !trackSearch.trim();
 
+  async function syncPlaylistCoverUrl(playlistId: string, coverUrl: string | null) {
+    const currentPlaylist = playlists.find((playlist) => playlist.id === playlistId) || null;
+    if (!currentPlaylist || currentPlaylist.cover_url === coverUrl) {
+      return;
+    }
+
+    try {
+      const response = await updateUserPlaylist(playlistId, { cover_url: coverUrl });
+      setPlaylists((current) => current.map((playlist) => (playlist.id === playlistId ? response.playlist : playlist)));
+    } catch (coverErr) {
+      void coverErr;
+    }
+  }
+
   async function loadPlaylists() {
     const response = await listUserPlaylists({ bypassCache: true });
     const items = response.playlists || [];
@@ -172,7 +187,8 @@ export default function Playlist() {
         }),
       );
 
-      setTracks(detailedTracks.filter((item): item is PlaylistTrackView => item !== null));
+      const nextTracks = detailedTracks.filter((item): item is PlaylistTrackView => item !== null);
+      setTracks(nextTracks);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load playlist songs.');
       setTracks([]);
@@ -236,6 +252,15 @@ export default function Playlist() {
     void loadPlaylistTracks(selectedPlaylistId);
   }, [selectedPlaylistId]);
 
+  useEffect(() => {
+    if (!selectedPlaylistId || !visibleTracks.length) {
+      return;
+    }
+
+    const nextCoverUrl = visibleTracks[0]?.track.album.images?.[0]?.url || null;
+    void syncPlaylistCoverUrl(selectedPlaylistId, nextCoverUrl);
+  }, [selectedPlaylistId, visibleTracks, playlists]);
+
   async function onSearchSongs() {
     if (!isOnline) {
       notifyOfflineAction();
@@ -254,6 +279,45 @@ export default function Playlist() {
       setError(err instanceof Error ? err.message : 'Failed to search songs.');
     }
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    const trimmedQuery = searchQuery.trim();
+
+    if (trimmedQuery.length < 2) {
+      setSearchResults([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timer = window.setTimeout(() => {
+      async function runSearch() {
+        if (!isOnline) {
+          notifyOfflineAction();
+          return;
+        }
+
+        try {
+          const response = await searchSongs(trimmedQuery, 8);
+          if (!cancelled) {
+            setSearchResults(response.tracks.items || []);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : 'Failed to search songs.');
+          }
+        }
+      }
+
+      void runSearch();
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery, isOnline]);
 
   async function onAddSong(track: ApiTrack) {
     if (!isOnline) {
@@ -404,7 +468,7 @@ export default function Playlist() {
         <div className="mt-3 flex items-end gap-4">
           <div className="h-24 w-24 overflow-hidden rounded-xl bg-white/15">
             <img
-              src={selectedPlaylist?.cover_url || visibleTracks[0]?.track.album.images?.[0]?.url || 'https://placehold.co/240x240?text=Playlist'}
+              src={visibleTracks[0]?.track.album.images?.[0]?.url || selectedPlaylist?.cover_url || 'https://placehold.co/240x240?text=Playlist'}
               alt={selectedPlaylist?.name || 'Playlist'}
               className="h-full w-full object-cover"
             />
@@ -531,11 +595,8 @@ export default function Playlist() {
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
           />
-          <button className="h-11 rounded-lg border border-primary px-4 font-bold text-primary" onClick={onSearchSongs}>
-            Search
-          </button>
         </div>
-
+        
         <div className="space-y-2">
           {searchResults.map((track) => (
             <div key={track.id} className="flex items-center gap-3 rounded-lg p-2 border border-slate-200 dark:border-primary/10">
